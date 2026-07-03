@@ -1,0 +1,19 @@
+# external reference repos — fetched by scripts/fetch_reference.py, never committed
+external/
+
+# experiment outputs
+runs/*
+!runs/.gitkeep
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# notebooks
+.ipynb_checkpoints/
+
+# secrets / local env
+.env
