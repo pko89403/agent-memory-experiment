@@ -1,3 +1,3 @@
-from memlab.methods.base import MemoryMethod, Page
+from memlab.methods.base import MemoryMethod, Utterance
 
-__all__ = ["MemoryMethod", "Page"]
+__all__ = ["MemoryMethod", "Utterance"]
