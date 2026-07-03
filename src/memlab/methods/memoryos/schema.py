@@ -30,7 +30,7 @@ class _ToDictMixin:
 
 @dataclass
 class Page(_ToDictMixin):
-    # ── 논문의 {Q, R, T} — 탄생 시점(쌍 접기)에 채워짐 ──
+    # ── 논문의 {Q, R, T} — 탄생 시점(pair folding)에 채워짐 ──
     user_input: str  # Q
     agent_response: str  # R
     timestamp: str | None = None  # T (없으면 STM이 현재 시각으로 채움)

@@ -81,6 +81,7 @@ class MidTermMemory:
         beta: float = 0.8,  # heat: L_interaction 가중치 (코드 차용)
         gamma: float = 0.0001,  # heat: R_recency 가중치  (코드 차용)
         mu: float = 1e7,  # recency 시간 상수 (논문)
+        on_evict: Callable[[Segment], None] | None = None,  # 삭제 관찰 훅
     ):
         self.embed = embed
         self.segment_ops = segment_ops
@@ -88,6 +89,7 @@ class MidTermMemory:
         self.theta = theta
         self.alpha, self.beta, self.gamma = alpha, beta, gamma
         self.mu = mu
+        self.on_evict = on_evict
         self.segments: dict[str, Segment] = {}
 
     # ── 저장: 식 (2)(3)에 따른 페이지 편입 ─────────────────────────
@@ -168,6 +170,8 @@ class MidTermMemory:
         now = now or get_timestamp()
         coldest = min(self.segments.values(), key=lambda s: self.heat(s, now))
         del self.segments[coldest.id]
+        if self.on_evict is not None:
+            self.on_evict(coldest)
         return coldest
 
     def hot_segments(self, threshold: float = 5.0, now: str | None = None) -> list[Segment]:

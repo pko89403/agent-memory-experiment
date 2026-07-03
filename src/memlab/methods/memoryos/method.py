@@ -33,7 +33,7 @@ from memlab.methods.memoryos.llm_ops import (
 )
 from memlab.methods.memoryos.long_term import LongTermMemory
 from memlab.methods.memoryos.mid_term import MidTermMemory
-from memlab.methods.memoryos.schema import Page
+from memlab.methods.memoryos.schema import Page, Segment
 from memlab.methods.memoryos.short_term import ShortTermMemory
 
 
@@ -66,6 +66,7 @@ class MemoryOS(MemoryMethod):
         speaker_b: str,
         embed: Callable[[str], np.ndarray] = default_embed,
         config: MemoryOSConfig = MemoryOSConfig(),
+        on_evict: Callable[[Segment], None] | None = None,  # MTM 삭제 관찰 훅
     ):
         self.speaker_a = speaker_a
         self.speaker_b = speaker_b
@@ -75,7 +76,10 @@ class MemoryOS(MemoryMethod):
             chain_ops=ChainLlmOps(llm), max_capacity=config.stm_capacity
         )
         self.mtm = MidTermMemory(
-            embed=embed, segment_ops=SegmentLlmOps(llm), max_capacity=config.mtm_capacity
+            embed=embed,
+            segment_ops=SegmentLlmOps(llm),
+            max_capacity=config.mtm_capacity,
+            on_evict=on_evict,
         )
         self.lpm = LongTermMemory(
             embed=embed,
@@ -92,7 +96,7 @@ class MemoryOS(MemoryMethod):
 
     def ingest(self, utterance: Utterance) -> None:
         if self._last_timestamp is not None and utterance.timestamp != self._last_timestamp:
-            self._flush_open_page()  # 세션이 바뀌면 열린 page를 닫는다 (경계 오염 방지)
+            self.flush_open_page()  # 세션이 바뀌면 열린 page를 닫는다 (경계 오염 방지)
         self._last_timestamp = utterance.timestamp
 
         text = utterance.text
@@ -100,7 +104,7 @@ class MemoryOS(MemoryMethod):
             text = f"{text} (image description: {utterance.blip_caption})"
 
         if utterance.speaker == self.speaker_a:
-            self._flush_open_page()
+            self.flush_open_page()
             self._open_page = Page(user_input=text, timestamp=utterance.timestamp,
                                    agent_response="")
         else:
@@ -116,7 +120,7 @@ class MemoryOS(MemoryMethod):
     # ── answer: 3원 검색 + 통합 생성 (논문 3.3, 3.4) ───────────────
 
     def answer(self, question: str) -> str:
-        self._flush_open_page()  # 대화 끝에 열린 page가 남아 있으면 반영
+        self.flush_open_page()  # 대화 끝에 열린 page가 남아 있으면 반영
         stm_pages = self.stm.get_all()  # 논문 3.3: STM은 전부
         mtm_hits = self.mtm.search(
             question, top_m=self.config.top_m, top_k=self.config.top_k
@@ -131,12 +135,17 @@ class MemoryOS(MemoryMethod):
             lpm_info,
         )
 
-    # ── 내부 ─────────────────────────────────────────────────────
+    def flush_open_page(self) -> None:
+        """응답을 기다리는 열린 page를 지금 반영한다.
 
-    def _flush_open_page(self) -> None:
+        answer()가 자동으로 부르므로 평소엔 필요 없다 — 관찰 시점을
+        명시적으로 만들고 싶을 때(노트북 등) 쓴다.
+        """
         if self._open_page is not None:
             self._process_page(self._open_page)
             self._open_page = None
+
+    # ── 내부 ─────────────────────────────────────────────────────
 
     def _process_page(self, page: Page) -> None:
         self.stm.add_page(page)  # chain 구성 포함
