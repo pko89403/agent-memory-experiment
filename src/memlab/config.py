@@ -42,6 +42,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 LLM_MODEL = "qwen/qwen3.6-27b"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # 로컬 (원본 eval과 동일 모델)
 # qwen3.6은 추론(thinking) 모델 — 켜두면 <think> 사고 과정이 답에 섞이고
 # 토큰을 ~9배 쓴다 ("pong" 한 마디에 174 vs 19). 원본 실험의 gpt-4o-mini는
 # 비추론 모델이었으므로 꺼서 성격을 맞춘다.
