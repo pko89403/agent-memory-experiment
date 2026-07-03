@@ -102,6 +102,11 @@ uv run scripts/fetch_reference.py    # external/MemoryOS를 고정 SHA로 준비
   원본 repo에 아예 없다 → 우리 `evaluation/`이 셋 다 계산한다.
 - `get_embedding()`이 호출마다 SentenceTransformer를 새로 로드한다(성능 함정).
 - cat5(adversarial) 446문항 중 444개가 empty answer — 채점 시 제외 옵션 필요.
+- **MTM `max_capacity=2000` vs 대화당 페이지 최대 ~340개 → 벤치마크에서
+  heat 기반 forgetting(삭제)이 한 번도 발동하지 않는다.** 승격(heat>5 → LPM)만
+  작동. 또한 recency는 실행 중 사실상 상수(γ=0.0001, 실제 벽시계 기준)라
+  heat ≈ 0.8·N_visit + 0.8·L_interaction. forgetting 실험은 용량 압력을
+  따로 만들어야 하며, 그 조건의 baseline도 별도 측정 필요.
 - `process_conversation`의 쌍 접기 로직은 세션이 speaker_b로 시작하는 경우
   (124/272 세션)를 잘못 다룬다: **61턴이 덮어쓰기로 유실**되고 **57턴이
   세션 경계를 넘어 잘못 짝지어진다** (타임스탬프도 이전 세션 것으로 오염).
