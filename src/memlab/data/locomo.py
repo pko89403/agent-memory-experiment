@@ -1,7 +1,7 @@
 """LoCoMo-10 loader — the dataset exactly as it is on disk, typed.
 
 설계 원칙: 로더는 데이터를 **있는 그대로** 표현한다. 메소드별 전처리
-(예: MemoryOS의 speaker_a/b → user/assistant 쌍 접기, blip_caption을
+(예: MemoryOS의 speaker_a/b → user/assistant pair folding, blip_caption을
 text에 합치기)는 각 메소드 구현의 몫이다.
 
 데이터 전수 조사에서 확인된 특이점 (2026-07-03, 노트북 01 참고):
