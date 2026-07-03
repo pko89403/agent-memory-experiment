@@ -6,7 +6,10 @@ under ``external/``. Freezing the reference at one SHA is what makes the
 baseline reproducible: anyone cloning this repo evaluates against exactly
 the same upstream code we studied.
 """
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,3 +34,21 @@ LOCOMO_PATH = EXTERNAL_DIR / "locomo10.json"
 
 # --- experiment outputs ---
 RUNS_DIR = PROJECT_ROOT / "runs"
+
+# --- LLM (Groq free API, OpenAI 호환) ---
+# 키는 프로젝트 루트의 .env 파일에 GROQ_API_KEY=... 로 둔다 (.gitignore 대상).
+# 모델은 여기 고정한다: baseline과 변형 실험 내내 같은 모델이어야 비교가 성립한다.
+load_dotenv(PROJECT_ROOT / ".env")
+
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+LLM_MODEL = "qwen/qwen3.6-27b"
+
+
+def groq_api_key() -> str:
+    key = os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        raise RuntimeError(
+            "GROQ_API_KEY가 없습니다. 프로젝트 루트의 .env 파일에 "
+            "GROQ_API_KEY=gsk_... 한 줄을 추가하세요."
+        )
+    return key
