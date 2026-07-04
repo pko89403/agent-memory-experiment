@@ -41,12 +41,15 @@ RUNS_DIR = PROJECT_ROOT / "runs"
 load_dotenv(PROJECT_ROOT / ".env")
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-LLM_MODEL = "qwen/qwen3.6-27b"
+# llama-3.1-8b-instant: 무료 티어에서 전량 실행이 가능한 유일한 모델
+# (일일 14.4K 요청 / 500K 토큰 — 나머지는 1K 요청 벽에 걸림)
+LLM_MODEL = "llama-3.1-8b-instant"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # 로컬 (원본 eval과 동일 모델)
-# qwen3.6은 추론(thinking) 모델 — 켜두면 <think> 사고 과정이 답에 섞이고
-# 토큰을 ~9배 쓴다 ("pong" 한 마디에 174 vs 19). 원본 실험의 gpt-4o-mini는
-# 비추론 모델이었으므로 꺼서 성격을 맞춘다.
-LLM_EXTRA_BODY = {"reasoning_effort": "none"}
+# 추론(thinking) 모델은 <think>가 답에 섞이고 토큰을 ~9배 쓰므로 꺼서
+# 원본 실험(비추론 gpt-4o-mini)과 성격을 맞춘다. 비추론 모델엔 불필요.
+LLM_EXTRA_BODY = (
+    {"reasoning_effort": "none"} if "qwen3" in LLM_MODEL else {}
+)
 
 
 def groq_api_key() -> str:
