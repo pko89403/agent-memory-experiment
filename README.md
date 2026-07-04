@@ -114,3 +114,16 @@ uv run scripts/fetch_reference.py    # external/MemoryOS를 고정 SHA로 준비
   영향 측정 결과 **QA evidence 94건**이 유실(4)/오염(90) 턴을 가리키며,
   특히 temporal 질문은 잘못된 타임스탬프로 저장된 발화를 근거로 요구한다.
   → 우리 재구현은 유실 없는 pair folding을 쓴다 (논문 우선 전략 — 버그 비복제).
+
+## 출처 및 라이선스
+
+- **이 저장소의 코드**: MIT ([LICENSE](LICENSE))
+- **MemoryOS** ([BAI-LAB/MemoryOS](https://github.com/BAI-LAB/MemoryOS), Apache-2.0;
+  논문 arXiv:2506.06326): 재구현의 참고 구현체.
+  `prompt_templates.py`의 프롬프트와 90차원 성격 항목 목록은 해당 repo
+  (`eval/`, `memoryos-pypi/`)에서 차용·수정했다.
+- **LoCoMo** ([snap-research/locomo](https://github.com/snap-research/locomo),
+  CC BY-NC 4.0; Maharana et al., ACL 2024): 벤치마크 데이터.
+  **데이터 파일은 이 저장소에 포함되지 않으며** `scripts/fetch_data.py`가
+  원 출처에서 받는다. 노트북 출력에 포함된 대화 발췌는 비상업적 연구
+  목적의 인용이다.
