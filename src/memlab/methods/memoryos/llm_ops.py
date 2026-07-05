@@ -10,10 +10,13 @@
 
 구조화 출력이 필요한 연산(판정·추출)은 Pydantic 응답 모델로 스키마를
 선언한다 — 검증·파싱은 LLMProvider.chat_model이 담당.
+로컬 소형 모델 하드닝: 모든 응답 모델에 extra="forbid"(스키마 밖 필드를
+문법 수준에서 차단), max_tokens는 여유 있게 — 빠듯하면 JSON이 잘린다
+(75발화 스모크 실패로 실측).
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from memlab.llm import LLMProvider
 from memlab.methods.memoryos import prompt_templates as prompts
@@ -24,14 +27,20 @@ from memlab.methods.memoryos.schema import Page, page_text
 
 
 class Continuity(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # 스키마 밖 필드를 문법 수준에서 금지
+
     continuous: bool
 
 
 class Keywords(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     keywords: list[str] = Field(max_length=3)
 
 
 class ExtractedKnowledge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_facts: list[str]
     assistant_knowledge: list[str]
 
@@ -58,19 +67,28 @@ class ChainLlmOps:
         self.llm = llm
 
     def judge_continuity(self, chain: list[Page], page: Page) -> bool:
-        """chain의 마지막 page와 새 page가 이어지는 대화인가."""
+        """chain의 마지막 page와 새 page가 이어지는 대화인가.
+
+        판정 호출이 끝내 실패하면 False(체인 리셋)로 강등한다 — 원본 eval도
+        비정상 응답을 전부 False로 처리했다. 최악의 결과가 "체인이 하나 더
+        쪼개짐"이라 안전하며, 대화 전체를 죽이는 것보다 낫다.
+        """
         prev = chain[-1]
-        out = self.llm.chat_model(
-            prompts.CONTINUITY_SYSTEM,
-            prompts.CONTINUITY_USER.format(
-                prev_user=prev.user_input,
-                prev_agent=prev.agent_response,
-                curr_user=page.user_input,
-                curr_agent=page.agent_response,
-            ),
-            Continuity,
-            max_tokens=20,
-        )
+        try:
+            out = self.llm.chat_model(
+                prompts.CONTINUITY_SYSTEM,
+                prompts.CONTINUITY_USER.format(
+                    prev_user=prev.user_input,
+                    prev_agent=prev.agent_response,
+                    curr_user=page.user_input,
+                    curr_agent=page.agent_response,
+                ),
+                Continuity,
+                max_tokens=200,
+            )
+        except Exception as error:
+            print(f"    [judge 강등] {error!r} → chain 리셋")
+            return False
         return out.continuous
 
     def summarize_chain(self, chain: list[Page]) -> str:
