@@ -6,6 +6,8 @@
 - 90차원 프로필·지식 추출: memoryos-pypi/prompts.py
 - 답변 생성: eval/main_loco_parse.py (간결·날짜 형식 규칙은 F1 채점과
   직결되므로 문구 유지. 원본의 오타만 교정)
+
+차용분의 라이선스는 Apache-2.0 — 전문은 licenses/MemoryOS-Apache-2.0.txt.
 """
 
 # ── STM: dialogue chain (논문 식 1) ─────────────────────────────────

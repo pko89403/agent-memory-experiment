@@ -2,10 +2,10 @@
 
 실험 반복문은 이 두 메서드만 안다:
 
-    student = SomeMethod()
-    for utt in utterances:             # ① 수업: 발화를 순서대로
-        student.ingest(utt)
-    prediction = student.answer(q)     # ② 시험 → ③ 채점은 evaluation.score()
+    method = SomeMethod()
+    for utt in utterances:             # ① ingest: 발화를 순서대로
+        method.ingest(utt)
+    prediction = method.answer(q)      # ② QA → ③ 채점은 evaluation.score()
 
 입력 단위는 **발화(Utterance)** — 데이터가 주는 그대로의 중립 단위다.
 발화를 어떻게 묶어 기억할지는 각 메소드의 몫이다. 예: MemoryOS는 내부에서

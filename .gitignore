@@ -17,3 +17,7 @@ __pycache__/
 
 # secrets / local env
 .env
+
+# claude code — 로컬 상태는 커밋하지 않는다 (CLAUDE.md·.claude/rules/만 공유 자산)
+.claude/settings.local.json
+.claude/*.lock

@@ -35,8 +35,8 @@ LOCOMO_PATH = EXTERNAL_DIR / "locomo10.json"
 # --- experiment outputs ---
 RUNS_DIR = PROJECT_ROOT / "runs"
 
-# --- LLM (Groq free API, OpenAI 호환) ---
-# 키는 프로젝트 루트의 .env 파일에 GROQ_API_KEY=... 로 둔다 (.gitignore 대상).
+# --- LLM (OpenAI 호환 — 기본은 로컬 LM Studio, Groq는 폴백) ---
+# Groq 폴백용 키만 프로젝트 루트의 .env 파일에 GROQ_API_KEY=... 로 둔다 (.gitignore 대상).
 # 모델은 여기 고정한다: baseline과 변형 실험 내내 같은 모델이어야 비교가 성립한다.
 load_dotenv(PROJECT_ROOT / ".env")
 
