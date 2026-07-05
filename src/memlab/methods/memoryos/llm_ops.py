@@ -36,6 +36,12 @@ class ExtractedKnowledge(BaseModel):
     assistant_knowledge: list[str]
 
 
+# 프로필은 승격마다 자라는 유일한 무한정 항. 생성 프롬프트가 600단어를
+# 지시하지만(prompt_templates.PERSONALITY_USER 8번 규칙) 모델이 어길 수
+# 있으므로, 답변 프롬프트 조립 시 하드 상한으로 이중 방어한다.
+PROFILE_CHAR_LIMIT = 4000
+
+
 def _dialogue(pages: list[Page]) -> str:
     return "\n".join(page_text(p) for p in pages)
 
@@ -154,13 +160,22 @@ class AnswerGenerator:
             f"Time: ({p.timestamp})"
             for p in stm_pages
         )
-        retrieval = "\n".join(
-            f"【Historical Memory】 {speaker_a}: {p.user_input}\n"
-            f"{speaker_b}: {p.agent_response}\nTime:({p.timestamp})\n"
-            f"Conversation chain overview:({p.meta_info})\n"
-            for p in retrieved_pages
-        )
-        background = f"【User Profile】\n{lpm_info['user_profile'] or 'None'}\n\n"
+        # 같은 chain의 페이지들은 meta_info가 동일하다 — 반복 출력은 토큰만
+        # 낭비하므로 chain overview는 처음 등장할 때 한 번만 붙인다.
+        seen_overviews: set[str] = set()
+        retrieval_parts = []
+        for p in retrieved_pages:
+            part = (
+                f"【Historical Memory】 {speaker_a}: {p.user_input}\n"
+                f"{speaker_b}: {p.agent_response}\nTime:({p.timestamp})\n"
+            )
+            if p.meta_info and p.meta_info not in seen_overviews:
+                seen_overviews.add(p.meta_info)
+                part += f"Conversation chain overview:({p.meta_info})\n"
+            retrieval_parts.append(part)
+        retrieval = "\n".join(retrieval_parts)
+        profile = (lpm_info["user_profile"] or "None")[:PROFILE_CHAR_LIMIT]
+        background = f"【User Profile】\n{profile}\n\n"
         background += "".join(f"{fact}\n" for fact in lpm_info["user_kb"])
         assistant_knowledge = "【Assistant Knowledge】\n"
         assistant_knowledge += "".join(f"- {t}\n" for t in lpm_info["agent_traits"])

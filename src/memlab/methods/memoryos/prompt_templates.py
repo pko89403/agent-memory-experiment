@@ -151,6 +151,8 @@ Dimension ( Level(High/Medium/Low) )
 observations
 7. If a dimension cannot be inferred from either the old profile or new \
 conversation, do not include it
+8. Keep the complete updated profile under 600 words — keep only the most \
+strongly evidenced dimensions
 
 **Existing User Profile:**
 {existing_profile}
