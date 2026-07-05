@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -98,6 +99,7 @@ def _run_sample(sample: Sample, method_factory: MethodFactory) -> dict:
     student, llm = method_factory(sample)
 
     started = time.time()
+    print(f"  [{sample.sample_id}] ingest 시작 ({sum(len(s.turns) for s in sample.sessions)} 발화)")
     n_utterances = 0
     for session in sample.sessions:  # ① 수업
         for turn in session.turns:
@@ -105,7 +107,7 @@ def _run_sample(sample: Sample, method_factory: MethodFactory) -> dict:
                 Utterance(turn.speaker, turn.text, session.date_time, turn.blip_caption)
             )
             n_utterances += 1
-            if n_utterances % 50 == 0:
+            if n_utterances % 25 == 0:
                 print(
                     f"  [{sample.sample_id}] ingest {n_utterances} 발화, "
                     f"{llm.calls} 호출, {time.time() - started:.0f}s"
@@ -154,16 +156,17 @@ def _write_meta_once(run_dir: Path, run_id: str, meta: dict) -> None:
 
 
 def memoryos_factory(sample: Sample):
-    from memlab.llm import GroqProvider
+    from memlab.llm import default_provider
     from memlab.methods.memoryos import MemoryOS, MemoryOSConfig
 
-    llm = GroqProvider()
+    llm = default_provider()
     student = MemoryOS(llm, sample.speaker_a, sample.speaker_b,
                        config=MemoryOSConfig())
     return student, llm
 
 
 def main() -> None:
+    sys.stdout.reconfigure(line_buffering=True)  # 백그라운드 실행에서도 로그가 실시간
     parser = argparse.ArgumentParser(description="LoCoMo 벤치마크 러너")
     parser.add_argument("--run-id", default="baseline", help="runs/ 하위 디렉토리 이름")
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N개 대화만")
