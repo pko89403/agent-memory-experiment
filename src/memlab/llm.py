@@ -16,12 +16,23 @@ import time
 from abc import ABC, abstractmethod
 from typing import TypeVar
 
-from openai import APIStatusError, BadRequestError, OpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    BadRequestError,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import BaseModel, ValidationError
 
-from memlab.config import GROQ_BASE_URL, LLM_EXTRA_BODY, LLM_MODEL, groq_api_key
+from memlab import config
+from memlab.config import groq_api_key
 
 TModel = TypeVar("TModel", bound=BaseModel)
+
+# 서버가 이보다 긴 대기를 지시하면 조용히 자는 대신 실패시킨다 (침묵 방지)
+MAX_RETRY_WAIT_SECONDS = 900.0
 
 
 class LLMProvider(ABC):
@@ -48,12 +59,17 @@ class LLMProvider(ABC):
         """스키마(Pydantic 모델)를 강제한 1회 호출 → 검증된 모델 인스턴스."""
 
 
-class GroqProvider(LLMProvider):
-    """Groq free API (OpenAI 호환)."""
+class OpenAICompatProvider(LLMProvider):
+    """OpenAI 호환 엔드포인트 공용 구현 — Groq, Ollama 등이 상속한다."""
 
-    def __init__(self, model: str = LLM_MODEL, max_retries: int = 5):
+    def __init__(self, model: str, base_url: str, api_key: str,
+                 max_retries: int = 5, timeout: float = 60.0):
         super().__init__()
-        self.client = OpenAI(api_key=groq_api_key(), base_url=GROQ_BASE_URL)
+        # timeout: SDK 기본값(600초)은 연결이 멈추면 10분을 조용히 기다린다.
+        # max_retries=0: 재시도는 우리 루프가 담당 (SDK 내부 재시도와 중복 방지)
+        self.client = OpenAI(
+            api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0,
+        )
         self.model = model
         self.max_retries = max_retries
 
@@ -137,7 +153,6 @@ class GroqProvider(LLMProvider):
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            extra_body=LLM_EXTRA_BODY,
         )
         if response_format is not None:
             kwargs["response_format"] = response_format
@@ -151,7 +166,16 @@ class GroqProvider(LLMProvider):
             except RateLimitError as error:
                 if attempt == self.max_retries - 1:
                     raise
-                time.sleep(self._retry_delay(error, attempt))
+                delay = self._retry_delay(error, attempt)
+                if delay > MAX_RETRY_WAIT_SECONDS:
+                    raise
+                if delay > 5:
+                    print(f"    [rate-limit] {delay:.0f}초 대기")
+                time.sleep(delay)
+            except (APITimeoutError, APIConnectionError):
+                if attempt == self.max_retries - 1:
+                    raise
+                time.sleep(float(2**attempt))
         raise RuntimeError("unreachable")
 
     @staticmethod
@@ -164,3 +188,36 @@ class GroqProvider(LLMProvider):
             except ValueError:
                 pass
         return float(2**attempt)
+
+
+class GroqProvider(OpenAICompatProvider):
+    """Groq free API. 주의: 무료 티어는 TPM 벽이 좁다 (2026-07-04 실측)."""
+
+    def __init__(self, model: str | None = None, max_retries: int = 5):
+        super().__init__(
+            model=model or config.GROQ_MODEL,
+            base_url=config.GROQ_BASE_URL,
+            api_key=groq_api_key(),
+            max_retries=max_retries,
+        )
+
+
+class LMStudioProvider(OpenAICompatProvider):
+    """로컬 LM Studio 서버(MLX 엔진) — rate limit 없음.
+    로컬 추론이라 타임아웃은 넉넉하게."""
+
+    def __init__(self, model: str | None = None, max_retries: int = 3):
+        super().__init__(
+            model=model or config.LMSTUDIO_MODEL,
+            base_url=config.LMSTUDIO_BASE_URL,
+            api_key="lm-studio",  # LM Studio는 키를 검사하지 않지만 SDK가 요구
+            max_retries=max_retries,
+            timeout=300.0,
+        )
+
+
+def default_provider() -> LLMProvider:
+    """config.LLM_PROVIDER에 따른 기본 프로바이더."""
+    if config.LLM_PROVIDER == "lmstudio":
+        return LMStudioProvider()
+    return GroqProvider()

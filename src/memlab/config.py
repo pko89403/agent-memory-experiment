@@ -40,16 +40,24 @@ RUNS_DIR = PROJECT_ROOT / "runs"
 # 모델은 여기 고정한다: baseline과 변형 실험 내내 같은 모델이어야 비교가 성립한다.
 load_dotenv(PROJECT_ROOT / ".env")
 
+# 프로바이더 선택: "lmstudio"(로컬 MLX, rate limit 없음) | "groq"(무료 API)
+# - Groq 무료 티어: TPM 6K 벽 때문에 실용 불가 판정 (2026-07-04 실측)
+# - 24GB M4에서 MLX 엔진(빠름)을 쓸 수 있는 로컬 런타임은 LM Studio뿐
+#   (Ollama의 MLX 백엔드는 32GB 이상 전용)
+LLM_PROVIDER = "lmstudio"
+
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-# llama-3.1-8b-instant: 무료 티어에서 전량 실행이 가능한 유일한 모델
-# (일일 14.4K 요청 / 500K 토큰 — 나머지는 1K 요청 벽에 걸림)
-LLM_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "llama-3.1-8b-instant"  # 무료 티어에서 유일하게 RPD가 넉넉한 모델
+
+LMSTUDIO_BASE_URL = "http://localhost:1234/v1"
+LMSTUDIO_MODEL = "qwen3.5-9b-mlx"  # MLX 4bit — 24GB에서 체급 대비 최상 품질
+
+LLM_MODEL = LMSTUDIO_MODEL if LLM_PROVIDER == "lmstudio" else GROQ_MODEL
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # 로컬 (원본 eval과 동일 모델)
-# 추론(thinking) 모델은 <think>가 답에 섞이고 토큰을 ~9배 쓰므로 꺼서
-# 원본 실험(비추론 gpt-4o-mini)과 성격을 맞춘다. 비추론 모델엔 불필요.
-LLM_EXTRA_BODY = (
-    {"reasoning_effort": "none"} if "qwen3" in LLM_MODEL else {}
-)
+# qwen 계열의 thinking 비활성화는 LM Studio의 Prompt Template(Jinja) 최상단에
+# {%- set enable_thinking = false %} 를 넣어 해결한다 — API 파라미터
+# (chat_template_kwargs, /no_think 등)로는 불가함을 실측으로 확인 (2026-07-05).
+# 원본 실험(비추론 gpt-4o-mini)과 성격을 맞추기 위해 반드시 꺼야 한다.
 
 
 def groq_api_key() -> str:
