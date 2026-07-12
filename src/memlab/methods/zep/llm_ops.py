@@ -56,6 +56,23 @@ from memlab.methods.zep import prompt_templates as prompts
 from memlab.methods.zep.schema import EntityNode, EpisodeNode, SemanticEdge
 
 FACT_EXTRACTION_MAX_TOKENS = 4000
+# 판정 응답(중복 판정·날짜·용의자 지목)은 정상일 때 ~200토큰 — 800은 4배
+# 여유라 "빠듯한 max_tokens 금지" 규범과 충돌하지 않으면서, temp 0 폭주
+# 생성(_fallback 경위 참고)이 타임아웃(300s)까지 가기 전에 잘리게 한다.
+JUDGE_MAX_TOKENS = 800
+
+
+def _fallback(op: str, default, error: Exception):
+    """LLM 콜 실패를 op별 안전 기본값으로 강등 — 발화 하나의 판정 실패가
+    대화(수 시간짜리 ingest)를 통째로 죽이지 않게 한다.
+
+    근거 실측 (conv-26 발화 32, 2026-07-12): resolution 프롬프트가 temp 0
+    폭주 생성에 빠지면 재시도 5회가 전부 같은 반복으로 타임아웃, 대화
+    전체가 [fail] 처리됐다. 기본값은 전부 '판정 없음' 쪽(신규 노드/비중복/
+    무날짜)이라 성공 경로의 semantics는 불변이다.
+    """
+    print(f"    [degrade] {op}: {error!r} — 기본값으로 진행")
+    return default
 
 
 # --- 응답 모델 (graphiti v0.5.2 응답 스키마 차용, extra="forbid") ---
@@ -242,23 +259,30 @@ class ExtractionOps:
         """6.1.1 + reflexion 보정 → entity 이름 목록 (Sec 2.2.1)."""
         prev = _dialogue(previous)
         cur = f"{episode.speaker}: {episode.content}"
-        extracted = self.llm.chat_model(
-            prompts.ENTITY_EXTRACTION_SYSTEM,
-            prompts.ENTITY_EXTRACTION.format(
-                previous_messages=prev, current_message=cur
-            ),
-            ExtractedEntities,
-        )
+        try:
+            extracted = self.llm.chat_model(
+                prompts.ENTITY_EXTRACTION_SYSTEM,
+                prompts.ENTITY_EXTRACTION.format(
+                    previous_messages=prev, current_message=cur
+                ),
+                ExtractedEntities,
+            )
+        except Exception as error:
+            return _fallback("entity extraction", [], error)
         names = _unique(extracted.extracted_node_names)
-        missed = self.llm.chat_model(
-            prompts.ENTITY_REFLEXION_SYSTEM,
-            prompts.ENTITY_REFLEXION.format(
-                previous_messages=prev,
-                current_message=cur,
-                extracted_entities=", ".join(names) or "None",
-            ),
-            MissedEntities,
-        )
+        try:
+            missed = self.llm.chat_model(
+                prompts.ENTITY_REFLEXION_SYSTEM,
+                prompts.ENTITY_REFLEXION.format(
+                    previous_messages=prev,
+                    current_message=cur,
+                    extracted_entities=", ".join(names) or "None",
+                ),
+                MissedEntities,
+                max_tokens=JUDGE_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("entity reflexion", names, error)
         return _unique(names + missed.missed_entities)
 
     def summarize_entity(
@@ -270,13 +294,16 @@ class ExtractionOps:
         대해 알게 된 것"의 새 메모. 기존 노드의 저장된 요약과 합치는 건
         병합(method.py ③)의 몫이다.
         """
-        result = self.llm.chat_model(
-            prompts.ENTITY_SUMMARY_SYSTEM,
-            prompts.ENTITY_SUMMARY.format(
-                messages=_dialogue(previous + [episode]), entity_name=name
-            ),
-            Summary,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.ENTITY_SUMMARY_SYSTEM,
+                prompts.ENTITY_SUMMARY.format(
+                    messages=_dialogue(previous + [episode]), entity_name=name
+                ),
+                Summary,
+            )
+        except Exception as error:
+            return _fallback("entity summary", "", error)
         return result.summary
 
     def resolve_entity(
@@ -304,16 +331,20 @@ class ExtractionOps:
         if not candidates:
             return None, name
         lines, alias = _entity_json(candidates)
-        result = self.llm.chat_model(
-            prompts.ENTITY_RESOLUTION_SYSTEM,
-            prompts.ENTITY_RESOLUTION.format(
-                previous_messages=_dialogue(previous),
-                current_message=f"{episode.speaker}: {episode.content}",
-                existing_nodes=lines,
-                new_node=f"name: {name}",
-            ),
-            NodeDuplicate,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.ENTITY_RESOLUTION_SYSTEM,
+                prompts.ENTITY_RESOLUTION.format(
+                    previous_messages=_dialogue(previous),
+                    current_message=f"{episode.speaker}: {episode.content}",
+                    existing_nodes=lines,
+                    new_node=f"name: {name}",
+                ),
+                NodeDuplicate,
+                max_tokens=JUDGE_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("entity resolution", (None, name), error)
         match = alias.get(result.uuid or "") if result.is_duplicate else None
         if match is None:
             return None, name
@@ -327,16 +358,19 @@ class ExtractionOps:
         entity_names: list[str],
     ) -> list[FactTriple]:
         """6.1.3 → 확정된 entity들 사이의 fact 목록 (Sec 2.2.2)."""
-        result = self.llm.chat_model(
-            prompts.FACT_EXTRACTION_SYSTEM,
-            prompts.FACT_EXTRACTION.format(
-                previous_messages=_dialogue(previous),
-                current_message=f"{episode.speaker}: {episode.content}",
-                entities=", ".join(entity_names),
-            ),
-            ExtractedFacts,
-            max_tokens=FACT_EXTRACTION_MAX_TOKENS,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.FACT_EXTRACTION_SYSTEM,
+                prompts.FACT_EXTRACTION.format(
+                    previous_messages=_dialogue(previous),
+                    current_message=f"{episode.speaker}: {episode.content}",
+                    entities=", ".join(entity_names),
+                ),
+                ExtractedFacts,
+                max_tokens=FACT_EXTRACTION_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("fact extraction", [], error)
         return result.edges
 
     def resolve_fact(
@@ -363,17 +397,21 @@ class ExtractionOps:
         if not dedup_candidates and not invalidation_candidates:
             return None, []
         offset = len(dedup_candidates)
-        result = self.llm.chat_model(
-            prompts.FACT_RESOLUTION_SYSTEM,
-            prompts.FACT_RESOLUTION.format(
-                existing_edges=_edge_json(dedup_candidates, with_dates=False),
-                invalidation_candidates=_edge_json(
-                    invalidation_candidates, with_dates=True, idx_offset=offset
+        try:
+            result = self.llm.chat_model(
+                prompts.FACT_RESOLUTION_SYSTEM,
+                prompts.FACT_RESOLUTION.format(
+                    existing_edges=_edge_json(dedup_candidates, with_dates=False),
+                    invalidation_candidates=_edge_json(
+                        invalidation_candidates, with_dates=True, idx_offset=offset
+                    ),
+                    new_edge=_edge_text(edge),
                 ),
-                new_edge=_edge_text(edge),
-            ),
-            EdgeDuplicate,
-        )
+                EdgeDuplicate,
+                max_tokens=JUDGE_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("fact resolution", (None, []), error)
         duplicate = next(
             (dedup_candidates[i] for i in result.duplicate_facts if 0 <= i < offset),
             None,
@@ -394,16 +432,20 @@ class ExtractionOps:
         t_ref: datetime,
     ) -> tuple[datetime | None, datetime | None]:
         """6.1.5 temporal extraction → (valid_at, invalid_at) (Sec 2.2.3)."""
-        result = self.llm.chat_model(
-            prompts.TEMPORAL_EXTRACTION_SYSTEM,
-            prompts.TEMPORAL_EXTRACTION.format(
-                previous_messages=_dialogue(previous),
-                current_message=f"{episode.speaker}: {episode.content}",
-                reference_timestamp=t_ref.isoformat(),
-                fact=fact,
-            ),
-            EdgeDates,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.TEMPORAL_EXTRACTION_SYSTEM,
+                prompts.TEMPORAL_EXTRACTION.format(
+                    previous_messages=_dialogue(previous),
+                    current_message=f"{episode.speaker}: {episode.content}",
+                    reference_timestamp=t_ref.isoformat(),
+                    fact=fact,
+                ),
+                EdgeDates,
+                max_tokens=JUDGE_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("temporal extraction", (None, None), error)
         return parse_iso(result.valid_at), parse_iso(result.invalid_at)
 
 
@@ -419,19 +461,27 @@ class CommunityOps:
 
     def summarize(self, summaries: list[str]) -> str:
         numbered = "\n".join(f"{i}. {s}" for i, s in enumerate(summaries, 1))
-        result = self.llm.chat_model(
-            prompts.SUMMARY_COMBINE_SYSTEM,
-            prompts.SUMMARY_COMBINE.format(summaries=numbered),
-            Summary,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.SUMMARY_COMBINE_SYSTEM,
+                prompts.SUMMARY_COMBINE.format(summaries=numbered),
+                Summary,
+            )
+        except Exception as error:
+            # 결합 실패 → 첫 입력 유지 (병합이면 새 요약, community면 첫 member)
+            return _fallback("summary combine", summaries[0] if summaries else "", error)
         return result.summary
 
     def name(self, summary: str) -> str:
-        result = self.llm.chat_model(
-            prompts.COMMUNITY_NAME_SYSTEM,
-            prompts.COMMUNITY_NAME.format(summary=summary),
-            SummaryDescription,
-        )
+        try:
+            result = self.llm.chat_model(
+                prompts.COMMUNITY_NAME_SYSTEM,
+                prompts.COMMUNITY_NAME.format(summary=summary),
+                SummaryDescription,
+                max_tokens=JUDGE_MAX_TOKENS,
+            )
+        except Exception as error:
+            return _fallback("community name", summary[:80], error)
         return result.description
 
 
