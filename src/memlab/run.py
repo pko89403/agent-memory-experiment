@@ -41,12 +41,15 @@ def run(
     meta: dict,
     run_id: str = "baseline",
     limit: int | None = None,
+    samples: frozenset[str] | None = None,
 ) -> Path:
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     _write_meta_once(run_dir, run_id, meta)
 
     for sample in load_locomo(limit=limit):
+        if samples is not None and sample.sample_id not in samples:
+            continue  # 병렬 워커 분담 — 남의 몫은 건드리지 않는다
         checkpoint = run_dir / f"{sample.sample_id}.json"
         if checkpoint.exists():
             print(f"[skip] {sample.sample_id} — 체크포인트 있음")
@@ -99,7 +102,8 @@ def _run_sample(sample: Sample, method_factory: MethodFactory) -> dict:
     method, llm = method_factory(sample)
 
     started = time.time()
-    print(f"  [{sample.sample_id}] ingest 시작 ({sum(len(s.turns) for s in sample.sessions)} 발화)")
+    n_total = sum(len(s.turns) for s in sample.sessions)
+    print(f"  [{sample.sample_id}] ingest 시작 ({n_total} 발화)")
     n_utterances = 0
     for session in sample.sessions:  # ① ingest
         for turn in session.turns:
@@ -107,9 +111,9 @@ def _run_sample(sample: Sample, method_factory: MethodFactory) -> dict:
                 Utterance(turn.speaker, turn.text, session.date_time, turn.blip_caption)
             )
             n_utterances += 1
-            if n_utterances % 25 == 0:
+            if n_utterances % 10 == 0:
                 print(
-                    f"  [{sample.sample_id}] ingest {n_utterances} 발화, "
+                    f"  [{sample.sample_id}] ingest {n_utterances}/{n_total} 발화, "
                     f"{llm.calls} 호출, {time.time() - started:.0f}s"
                 )
     print(
@@ -165,25 +169,55 @@ def memoryos_factory(sample: Sample):
     return method, llm
 
 
+def zep_run_config():
+    """LoCoMo 런의 Zep 설정 — 팩토리와 meta.json이 같은 것을 봐야 한다."""
+    from memlab.methods.zep import ZepConfig
+
+    # community 유지보수 제외 (근거는 ZepConfig.update_communities)
+    return ZepConfig(update_communities=False)
+
+
+def zep_factory(sample: Sample):
+    from memlab.llm import default_provider
+    from memlab.methods.zep import ZepMethod
+
+    llm = default_provider()
+    method = ZepMethod(llm, sample.speaker_a, sample.speaker_b,
+                       config=zep_run_config())
+    return method, llm
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)  # 백그라운드 실행에서도 로그가 실시간
     parser = argparse.ArgumentParser(description="LoCoMo 벤치마크 러너")
     parser.add_argument("--run-id", default="baseline", help="runs/ 하위 디렉토리 이름")
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N개 대화만")
     parser.add_argument("--score-only", action="store_true", help="채점만 다시")
+    parser.add_argument("--method", choices=("memoryos", "zep"), default="memoryos")
+    parser.add_argument(
+        "--samples", default=None,
+        help="쉼표로 구분한 sample id만 (병렬 워커 분담용, 예: conv-44,conv-47)",
+    )
     args = parser.parse_args()
 
     run_dir = RUNS_DIR / args.run_id
     if not args.score_only:
-        from memlab.methods.memoryos import MemoryOSConfig
+        if args.method == "zep":
+            factory, config = zep_factory, zep_run_config()
+        else:
+            from memlab.methods.memoryos import MemoryOSConfig
 
+            factory, config = memoryos_factory, MemoryOSConfig()
         meta = {
-            "method": "memoryos",
+            "method": args.method,
             "llm_model": LLM_MODEL,
             "embedding_model": EMBEDDING_MODEL,
-            "config": MemoryOSConfig().to_dict(),
+            "config": config.to_dict(),
         }
-        run_dir = run(memoryos_factory, meta, run_id=args.run_id, limit=args.limit)
+        run_dir = run(
+            factory, meta, run_id=args.run_id, limit=args.limit,
+            samples=frozenset(args.samples.split(",")) if args.samples else None,
+        )
     score_run(run_dir)
 
 
