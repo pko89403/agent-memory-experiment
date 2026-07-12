@@ -12,6 +12,7 @@ LLMProvider 인터페이스만 알고, 실제 공급자(Groq 등)는 상속으�
 """
 from __future__ import annotations
 
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import TypeVar
@@ -39,6 +40,7 @@ class LLMProvider(ABC):
     def __init__(self):
         self.calls = 0
         self.total_tokens = 0
+        self._usage_lock = threading.Lock()  # 파이프라인 fan-out에서 카운터 보호
 
     @abstractmethod
     def chat(
@@ -160,8 +162,9 @@ class OpenAICompatProvider(LLMProvider):
         for attempt in range(self.max_retries):
             try:
                 response = self.client.chat.completions.create(**kwargs)
-                self.calls += 1
-                self.total_tokens += response.usage.total_tokens
+                with self._usage_lock:
+                    self.calls += 1
+                    self.total_tokens += response.usage.total_tokens
                 return (response.choices[0].message.content or "").strip()
             except RateLimitError as error:
                 if attempt == self.max_retries - 1:

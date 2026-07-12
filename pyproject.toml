@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "neo4j>=6.2.0",
     "numpy>=2.5.0",
     "openai>=2.44.0",
     "python-dotenv>=1.2.2",
