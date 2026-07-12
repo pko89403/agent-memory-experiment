@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,19 +77,25 @@ def _fallback(op: str, default, error: Exception):
 
 
 # --- 응답 모델 (graphiti v0.5.2 응답 스키마 차용, extra="forbid") ---
+# 모든 생성 필드에 maxLength/maxItems 상한 — LM Studio의 constrained decoding이
+# 문법 수준에서 강제함을 실측 (36자 복사 요청이 10자에서, 8항목 요청이
+# 3항목에서 절단, 2026-07-12). temp 0 폭주 생성(_fallback 경위)을 구조적으로
+# 봉쇄한다. 상한은 정상 출력 최장의 4~10배 — 정상 경로는 절대 안 잘린다.
+
+EntityName = Annotated[str, Field(max_length=100)]  # 실측 최장 ~40자
 
 
 class ExtractedEntities(BaseModel):  # 원본: extract_nodes.ExtractedNodes
     model_config = ConfigDict(extra="forbid")
-    extracted_node_names: list[str] = Field(
-        ..., description="Name of the extracted entity"
+    extracted_node_names: list[EntityName] = Field(
+        ..., max_length=30, description="Name of the extracted entity"
     )
 
 
 class MissedEntities(BaseModel):  # 원본: extract_nodes.MissedEntities
     model_config = ConfigDict(extra="forbid")
-    missed_entities: list[str] = Field(
-        ..., description="Names of entities that weren't extracted"
+    missed_entities: list[EntityName] = Field(
+        ..., max_length=30, description="Names of entities that weren't extracted"
     )
 
 
@@ -96,10 +103,12 @@ class NodeDuplicate(BaseModel):  # 원본: dedupe_nodes.NodeDuplicate
     model_config = ConfigDict(extra="forbid")
     is_duplicate: bool = Field(..., description="true or false")
     uuid: str | None = Field(
-        None, description="uuid of the existing node as listed, or null"
+        None, max_length=40,
+        description="uuid of the existing node as listed, or null",
     )
     name: str = Field(
         ...,
+        max_length=100,
         description=(
             "Updated name of the new node (use the best name between the "
             "new node's name, an existing duplicate name, or a combination "
@@ -111,14 +120,16 @@ class NodeDuplicate(BaseModel):  # 원본: dedupe_nodes.NodeDuplicate
 class Summary(BaseModel):  # 원본: summarize_nodes.Summary
     model_config = ConfigDict(extra="forbid")
     summary: str = Field(
-        ..., description="Summary containing the important information from both summaries"
+        ..., max_length=4000,  # 프롬프트 규범 "under 500 words" ≈ 3000자
+        description="Summary containing the important information from both summaries",
     )
 
 
 class SummaryDescription(BaseModel):  # 원본: summarize_nodes.SummaryDescription
     model_config = ConfigDict(extra="forbid")
     description: str = Field(
-        ..., description="One sentence description of the provided summary"
+        ..., max_length=400,
+        description="One sentence description of the provided summary",
     )
 
 
@@ -126,15 +137,15 @@ class FactTriple(BaseModel):  # 원본: extract_edges.Edge (클래스명만 논�
     # triple = (주어, 술어, 목적어) 세 조각 + 원문 fact 문장 — 지식 그래프의
     # 최소 문장 단위. 그래프에선 source→target 엣지에 fact를 실은 것이 된다.
     model_config = ConfigDict(extra="forbid")
-    relation_type: str = Field(..., description="RELATION_TYPE_IN_CAPS")
-    source_entity_name: str = Field(..., description="name of the source entity")
-    target_entity_name: str = Field(..., description="name of the target entity")
-    fact: str = Field(..., description="extracted factual information")
+    relation_type: str = Field(..., max_length=60, description="RELATION_TYPE_IN_CAPS")
+    source_entity_name: str = Field(..., max_length=100, description="name of the source entity")
+    target_entity_name: str = Field(..., max_length=100, description="name of the target entity")
+    fact: str = Field(..., max_length=600, description="extracted factual information")
 
 
 class ExtractedFacts(BaseModel):  # 원본: extract_edges.ExtractedEdges
     model_config = ConfigDict(extra="forbid")
-    edges: list[FactTriple]
+    edges: list[FactTriple] = Field(..., max_length=20)
 
 
 class EdgeDuplicate(BaseModel):
@@ -144,6 +155,7 @@ class EdgeDuplicate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     duplicate_facts: list[int] = Field(
         ...,
+        max_length=20,
         description=(
             "List of idx values of duplicate facts (only from EXISTING FACTS "
             "range). Empty list if none."
@@ -151,6 +163,7 @@ class EdgeDuplicate(BaseModel):
     )
     contradicted_facts: list[int] = Field(
         ...,
+        max_length=20,
         description=(
             "List of idx values of contradicted facts (from full idx range). "
             "Empty list if none."
@@ -162,6 +175,7 @@ class EdgeDates(BaseModel):  # 원본: extract_edge_dates.EdgeDates
     model_config = ConfigDict(extra="forbid")
     valid_at: str | None = Field(
         None,
+        max_length=40,  # ISO 8601은 최장 32자
         description=(
             "The date and time when the relationship described by the edge "
             "fact became true or was established. YYYY-MM-DDTHH:MM:SS.SSSSSSZ "
@@ -170,6 +184,7 @@ class EdgeDates(BaseModel):  # 원본: extract_edge_dates.EdgeDates
     )
     invalid_at: str | None = Field(
         None,
+        max_length=40,
         description=(
             "The date and time when the relationship described by the edge "
             "fact stopped being true or ended. YYYY-MM-DDTHH:MM:SS.SSSSSSZ "

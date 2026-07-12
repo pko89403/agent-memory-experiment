@@ -125,6 +125,10 @@ class OpenAICompatProvider(LLMProvider):
                         ),
                     },
                 ]
+                # temp 0의 재샘플은 같은 출력을 재생한다 (폭주 생성 실측,
+                # 2026-07-12) — reask는 온도를 올려 다른 샘플을 뽑는다.
+                # 1차 시도의 결정론은 유지된다.
+                temperature = max(temperature, 0.3)
         raise ValueError(
             f"{response_model.__name__} 검증이 reask 후에도 실패: {raw[:200]!r}"
         )
@@ -178,9 +182,14 @@ class OpenAICompatProvider(LLMProvider):
                 if delay > 5:
                     print(f"    [rate-limit] {delay:.0f}초 대기")
                 time.sleep(delay)
-            except (APITimeoutError, APIConnectionError):
+            except (APITimeoutError, APIConnectionError) as error:
                 if attempt == self.max_retries - 1:
                     raise
+                if isinstance(error, APITimeoutError):
+                    # 타임아웃은 temp 0 폭주 생성의 신호일 수 있다 — 같은
+                    # 요청의 재전송은 같은 폭주를 재생하므로 (5연속 동일
+                    # 타임아웃 실측, 2026-07-12) 재시도만 온도를 올린다.
+                    kwargs["temperature"] = max(kwargs["temperature"], 0.3)
                 time.sleep(float(2**attempt))
         raise RuntimeError("unreachable")
 
