@@ -57,5 +57,11 @@ uv run scripts/fetch_reference.py                # external/MemoryOS (SHA 고정
 - 로컬 소형 모델은 스키마를 벗어나려 함 — 구조화 출력 Pydantic 모델에
   `extra="forbid"` 필수, 빠듯한 max_tokens 금지.
 - 실행 중인 러너가 있을 때 코드 수정은 안전하다 (메모리에 로드된 프로세스).
+  단, 멀티 대화 런 도중의 메소드 경로 수정은 금물 — 대화마다 다른 코드로
+  ingest된 잡탕 run이 된다. 런 완료까지 동결.
+- zep 병렬 워커: Neo4j CE는 DB가 하나라 워커당 인스턴스가 필요.
+  두 번째 인스턴스는 `~/PERSONAL/neo4j-b` (tarball 2026.06.0, bolt :7688,
+  기동: `JAVA_HOME=/opt/homebrew/opt/openjdk@21 ~/PERSONAL/neo4j-b/bin/neo4j start`).
+  발사는 `scripts/run_zep.sh` 상단 주석 참고 (MEMLAB_NEO4J_URI + --samples).
 - macOS 백그라운드 프로세스가 "멈춘 듯"하면: 쿼터 프로브(소비량 변화)와
   `faulthandler.dump_traceback_later`로 물증을 잡는다.
