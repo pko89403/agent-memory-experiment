@@ -65,9 +65,12 @@ class OpenAICompatProvider(LLMProvider):
     """OpenAI 호환 엔드포인트 공용 구현 — Groq, Ollama 등이 상속한다."""
 
     def __init__(self, model: str, base_url: str, api_key: str,
-                 max_retries: int = 5, timeout: float = 60.0):
+                 max_retries: int = 5, timeout: float = 300.0):
         super().__init__()
         # timeout: SDK 기본값(600초)은 연결이 멈추면 10분을 조용히 기다린다.
+        # 60초로 줄였었는데 병렬 워커 2개가 LM Studio 슬롯 4개를 나누면
+        # 큐 대기가 60초를 넘어 5연속 타임아웃으로 대화가 통째로 실패함을
+        # 실측 (conv-26, 2026-07-12) — 큐 대기 + 최장 생성을 덮는 300초로.
         # max_retries=0: 재시도는 우리 루프가 담당 (SDK 내부 재시도와 중복 방지)
         self.client = OpenAI(
             api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0,
