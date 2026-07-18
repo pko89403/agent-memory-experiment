@@ -27,6 +27,13 @@ GRAPHITI_REPO_URL = "https://github.com/getzep/graphiti.git"
 # 부적합함을 확인하고 v0.5.2로 고정 (2026-07-09).
 GRAPHITI_SHA = "0f50b74735c6936676a1448a6da7a820a21fa809"
 
+NEMORI_DIR = EXTERNAL_DIR / "nemori"
+NEMORI_REPO_URL = "https://github.com/nemori-ai/nemori.git"
+# HEAD가 곧 paper-aligned 코드 — README가 "complete rewrite aligned with the
+# paper"를 명시하고 구 MVP는 legacy-mvp 브랜치로 분리해둠. 논문 v4(2026-04-16)
+# 직전의 리워크(2026-03) 세대임을 커밋 밀도로 확인하고 고정 (2026-07-17).
+NEMORI_SHA = "d2a6dff6e5481214a0be6a2d10147feccfc16244"
+
 # --- data (canonical source, NOT the MemoryOS vendored copy) ---
 # LoCoMo-10 originates from snap-research/locomo (Maharana et al., ACL 2024).
 # We fetch it from there at a pinned commit and verify its checksum.

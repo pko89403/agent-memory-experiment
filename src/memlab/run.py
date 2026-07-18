@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import sys
 import time
@@ -116,6 +117,7 @@ def _run_sample(sample: Sample, method_factory: MethodFactory) -> dict:
                     f"  [{sample.sample_id}] ingest {n_utterances}/{n_total} 발화, "
                     f"{llm.calls} 호출, {time.time() - started:.0f}s"
                 )
+    method.end_ingest()  # 잔여 버퍼 flush — 실패는 대화 단위로 전파 (검증 리뷰 N1)
     print(
         f"  [{sample.sample_id}] ingest 완료: {n_utterances} 발화 / "
         f"{llm.calls} 호출 / {time.time() - started:.0f}s"
@@ -187,13 +189,33 @@ def zep_factory(sample: Sample):
     return method, llm
 
 
+def nemori_run_config():
+    """LoCoMo 런의 Nemori 설정 — 팩토리와 meta.json이 같은 것을 봐야 한다.
+
+    (검증 리뷰 N3) zep_run_config와 동일 패턴 — 이 함수 없이 factory와
+    main()이 각자 Config를 만들면 커스텀 런에서 meta.json이 거짓말한다.
+    """
+    from memlab.methods.nemori import NemoriConfig
+
+    return NemoriConfig()
+
+
+def nemori_factory(sample: Sample):
+    # nemori는 화자 접기가 없어 speaker를 받지 않는다 (method.py docstring)
+    from memlab.llm import default_provider
+    from memlab.methods.nemori import NemoriMethod
+
+    llm = default_provider()
+    return NemoriMethod(llm, config=nemori_run_config()), llm
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)  # 백그라운드 실행에서도 로그가 실시간
     parser = argparse.ArgumentParser(description="LoCoMo 벤치마크 러너")
     parser.add_argument("--run-id", default="baseline", help="runs/ 하위 디렉토리 이름")
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N개 대화만")
     parser.add_argument("--score-only", action="store_true", help="채점만 다시")
-    parser.add_argument("--method", choices=("memoryos", "zep"), default="memoryos")
+    parser.add_argument("--method", choices=("memoryos", "zep", "nemori"), default="memoryos")
     parser.add_argument(
         "--samples", default=None,
         help="쉼표로 구분한 sample id만 (병렬 워커 분담용, 예: conv-44,conv-47)",
@@ -204,6 +226,8 @@ def main() -> None:
     if not args.score_only:
         if args.method == "zep":
             factory, config = zep_factory, zep_run_config()
+        elif args.method == "nemori":
+            factory, config = nemori_factory, nemori_run_config()
         else:
             from memlab.methods.memoryos import MemoryOSConfig
 
@@ -212,7 +236,7 @@ def main() -> None:
             "method": args.method,
             "llm_model": LLM_MODEL,
             "embedding_model": EMBEDDING_MODEL,
-            "config": config.to_dict(),
+            "config": asdict(config),
         }
         run_dir = run(
             factory, meta, run_id=args.run_id, limit=args.limit,
