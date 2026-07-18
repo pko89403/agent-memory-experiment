@@ -1,9 +1,9 @@
 # memlab — Claude Code 작업 지침
 
 LoCoMo 벤치마크에서 agent memory 논문들을 재구현·검증·비교하는 스터디
-프로젝트. 논문은 계속 추가된다 — 첫 메소드 MemoryOS(baseline 확보 중),
-다음은 Zep(temporal knowledge graph). cause-aware forgetting 변형 실험이
-최종 목표. 상세는 README.md.
+프로젝트. 논문은 계속 추가된다 — MemoryOS(baseline 확보), Zep(temporal
+knowledge graph, 전량 런 중), Nemori(adaptive memory distillation, 스모크
+단계). cause-aware forgetting 변형 실험이 최종 목표. 상세는 README.md.
 
 ## 작업 규범 (사용자와 합의된 것 — 어기지 말 것)
 
@@ -18,6 +18,10 @@ LoCoMo 벤치마크에서 agent memory 논문들을 재구현·검증·비교하
 - **코드 식별자에 한글 금지.** 주석·docstring·출력 라벨은 한국어 OK.
 - **YAGNI — 단, 코드의 아름다움은 실효성과 동급 가치다.** 죽은 코드·매직
   넘버·낱개 함수 주입·파라미터 나열을 남기지 말 것.
+- **진행 상황·판정·보고서는 obsidian vault에 노트로 기록한다**
+  (`~/Documents/Obsidian Vault/memlab/`,
+  [[위키링크]]로 연결). `status.md`는 상시 최신 대시보드 — 런 실행·완료·
+  판정 등 진행이 바뀔 때마다 갱신. 레포 안에 notes/를 만들지 않는다.
 - 가이드 노트북 스타일·편집 규칙은 `.claude/rules/notebooks.md`
   (notebooks/ 작업 시 자동 로드).
 
