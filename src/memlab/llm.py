@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import TypeVar
 
@@ -236,3 +237,22 @@ def default_provider() -> LLMProvider:
     if config.LLM_PROVIDER == "lmstudio":
         return LMStudioProvider()
     return GroqProvider()
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    """LLM이 뱉은 ISO timestamp의 관대한 파싱 — 실패는 None (콜러가 fallback).
+
+    date-only("2023-05-08")도 None이다 (검증 리뷰 N5): 시각 없는 값이
+    자정으로 파싱되면 콜러의 더 나은 fallback(세션 timestamp 등)이 죽고,
+    자정 앵커가 시간 근접성 판정(병합의 >1h 규칙)을 오염시킨다.
+    zep/llm_ops.py의 선행 복사본은 런 동결 해제 후 이관 예정 (검증 리뷰 N7).
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if len(text) <= 10:  # date-only — 시각 정보 없음
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None

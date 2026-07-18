@@ -31,6 +31,11 @@ from pathlib import Path
 
 from memlab.config import LOCOMO_PATH
 
+# Session.date_time 원문 형식 (예: "1:56 pm on 8 May, 2023") — 데이터셋
+# 속성이라 로더 옆이 단일 진실 (검증 리뷰 N6, 2026-07-17). zep/method.py의
+# T_REF_FORMAT은 동일 값의 선행 복사본 — 런 동결 해제 후 이관 예정.
+DATE_TIME_FORMAT = "%I:%M %p on %d %B, %Y"
+
 _SESSION_KEY = re.compile(r"^session_(\d+)$")
 
 

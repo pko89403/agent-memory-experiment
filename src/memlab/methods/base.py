@@ -35,6 +35,18 @@ class MemoryMethod(ABC):
     def ingest(self, utterance: Utterance) -> None:
         """발화 하나를 기억에 넣는다."""
 
+    def end_ingest(self) -> None:
+        """ingest 종료 신호 — 버퍼형 메소드가 잔여분을 처리한다 (기본 no-op).
+
+        (검증 리뷰 N1) 버퍼를 가진 메소드(nemori)가 잔여 flush를 answer()
+        안에서 하면 flush 실패가 러너의 QA 단위 격리에 삼켜진다 — buffer가
+        안 비워져 QA마다 재실행되고, all-error checkpoint가 남아 resume이
+        대화를 영구 스킵한다. 러너가 ingest 루프 직후 이 훅을 불러 실패를
+        대화 단위 에러 도메인(재개 시 재시도)에 둔다. zep 때 "finalize 훅
+        없이"로 결정했으나(2026-07-10) 그건 버퍼 없는 메소드 시절 — 세 번째
+        메소드에서 설계 신호가 실현됐다 (2026-07-17 합의).
+        """
+
     @abstractmethod
     def answer(self, question: str) -> str:
         """기억만으로 질문에 답한다."""
