@@ -84,31 +84,30 @@ gpt-4o-mini였으므로 논문 수치와의 직접 비교는 포기하고, **같
 자체 baseline vs 변형**의 비교에 집중한다. 데이터 탐구·메트릭·차분 테스트는
 LLM 없이 전부 가능하다.
 
-## 현재 상태 — 스모크 실측 (conv-26, 메소드 3종)
+## 현재 상태 — 전량 baseline (LoCoMo 10편, 1,540문항)
 
-conv-26 한 편(발화 419 / QA 199)을 qwen3.5-9b-mlx로 완주한 메소드별
-set_f1. Zep 전량 10편은 병렬 런 진행 중(5/10 완료), Nemori 전량은 스모크
-통과로 대기 (아티팩트: `runs/`, 커밋되지 않는다):
+Zep·Nemori는 전량 10편을 qwen3.5-9b-mlx로 완주한 메소드별 set_f1.
+MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(커밋 안 됨):
 
-| category | n | MemoryOS | Zep | Nemori |
+| category | n | MemoryOS* | Zep | Nemori |
 |---|---|---|---|---|
-| MULTI_HOP | 32 | 0.276 | 0.387 | 0.346 |
-| TEMPORAL | 37 | 0.301 | 0.129 | **0.451** |
-| OPEN_DOMAIN | 13 | 0.304 | 0.138 | 0.309 |
-| SINGLE_HOP | 70 | 0.357 | 0.469 | **0.486** |
-| ADVERSARIAL ↓ | 47 | 0.370 | 0.340 | **0.286** |
-| **OVERALL (1~4)** | 152 | 0.322 | 0.341 | **0.433** |
+| MULTI_HOP | 282 | 0.276 | 0.337 | **0.340** |
+| TEMPORAL | 321 | 0.301 | 0.177 | **0.434** |
+| OPEN_DOMAIN | 96 | 0.304 | 0.135 | 0.190 |
+| SINGLE_HOP | 841 | 0.357 | **0.500** | 0.462 |
+| ADVERSARIAL ↓ | 446 | 0.370 | 0.286 | **0.236** |
+| **OVERALL (1~4)** | 1540 | 0.322 | 0.380 | **0.417** |
 
-ADVERSARIAL은 함정 오답 기준 채점이라 낮을수록 좋다(↓). 대화당 비용:
-MemoryOS 1,460콜/88만 토큰/3.3h, Zep ~1만 콜/~36h, Nemori 507콜/110만
-토큰/10.6h — 단, Nemori 수치는 zep 병렬 런과 LM Studio 큐를 나눈 시간이라
-단독 점유면 ~3h 추정.
+*MemoryOS는 conv-26 스모크값. ADVERSARIAL은 함정 오답 기준이라 낮을수록
+좋다(↓). 대화당 비용: Zep ~1만 콜/~36h(message 단위 처리), Nemori
+~370 콜(episode 단위) — 논문 §4.3의 효율 주장대로 자릿수가 다르다.
 
-패턴: Nemori의 temporal 0.451은 Zep(0.129)의 3.5배 — episode 서사가
-상대 시점("yesterday")을 절대 날짜로 앵커링하는 설계(논문 §3.2.2)가
-그대로 점수가 됐다. adversarial도 셋 중 최저(=최선) — 함정 질문에 없는
-기억을 지어내는 빈도가 가장 낮다. 논문이 주장한 temporal 우위(Table 2)가
-로컬 9B에서도 방향 그대로 재현된다.
+패턴: **Nemori의 temporal 0.434는 Zep(0.177)의 2.4배** — episode 서사가
+상대 시점("yesterday")을 절대 날짜로 앵커링하는 설계(논문 §3.2.2)가 그대로
+점수가 됐다. adversarial도 최저(=최선)로, 함정 질문에 기억을 지어내는
+빈도가 가장 낮다. 반대로 single-hop은 Zep(0.500)이 앞선다 — 단순 사실
+회수는 knowledge graph의 정밀 검색이 유리. 논문이 주장한 temporal 우위와
+전체 우위(Table 2)가 로컬 9B에서도 방향 그대로 재현된다.
 
 ## 가이드 로드맵 (notebooks/)
 
