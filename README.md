@@ -1,93 +1,107 @@
-# memlab — Agent Memory 실험 하네스 & 스터디 가이드
+# memlab — Agent Memory Experiment Harness & Study Guide
 
-LoCoMo 벤치마크 위에서 agent memory 논문들을 **재구현하고, 검증하고, 비교하는** 프로젝트.
-메소드는 계속 추가된다 — 첫 번째로 MemoryOS(arXiv:2506.06326)를 재구현해 baseline을
-확보한 뒤, 새로운 memory 메소드(cause-aware forgetting)를 같은 조건에서 실험하는
-것이 최종 목표다.
+*English · [한국어](README.ko.md)*
 
-이 저장소는 **코드이자 가이드**다:
+A project to **reimplement, verify, and compare** agent memory papers on the
+LoCoMo benchmark. Methods keep getting added — MemoryOS (arXiv:2506.06326),
+Zep (arXiv:2501.13956, temporal knowledge graph), and Nemori
+(arXiv:2508.03341, adaptive memory distillation) are reimplemented, and the
+end goal is to experiment with a cause-aware forgetting variant under the same
+conditions.
 
-> **로직은 패키지에, 이야기는 노트북에.**
+This repository is **both code and guide**:
 
-- `src/memlab/` — 정답이 하나여야 하는 코드 (로더, 메트릭, 메소드, 러너). 실험은 CLI로 실행해 재현 가능하게.
-- `notebooks/` — 배움의 서사 (데이터셋 탐구, 메트릭 손계산, 아키텍처 해부). 값싸고 빠른 것만 실행.
+> **Logic in the package, story in the notebooks.**
 
-## 디렉토리 구조
+- `src/memlab/` — code that must have a single source of truth (loader, metrics, methods, runner). Experiments run via CLI, reproducibly.
+- `notebooks/` — the learning narrative (dataset exploration, metrics by hand, architecture dissection). Only the cheap and fast parts execute.
+
+## Directory Layout
 
 ```
 ├── src/memlab/
-│   ├── config.py                 # 모든 경로 + MEMORYOS_SHA 핀 (레퍼런스의 유일한 커밋 흔적)
-│   ├── data/                     # LoCoMo 로더
-│   ├── methods/                  # 공통 인터페이스: ingest(turn) / answer(question)
-│   │   └── memoryos/             # MemoryOS 재구현 (method #1, baseline)
-│   ├── evaluation/               # set-F1 / 표준 F1 / BLEU-1, 카테고리별 리포트
-│   └── run.py                    # 실험 러너 CLI (체크포인트·에러 격리)
-├── notebooks/                    # 가이드 챕터 01~03 (04·05 예정)
-├── scripts/                      # fetch_data.py(데이터), fetch_reference.py(레퍼런스)
-├── external/MemoryOS/            # 원본 repo (gitignore — 커밋되지 않음)
-├── runs/                         # 실험 결과 + config 스냅샷 (gitignore)
-└── tests/                        # 로더 무결성·채점 함수 테스트
+│   ├── config.py                 # all paths + reference SHA pins (the only committed trace of the references)
+│   ├── data/                     # LoCoMo loader
+│   ├── methods/                  # common interface: ingest(turn) / answer(question)
+│   │   ├── memoryos/             # MemoryOS reimplementation (method #1, baseline)
+│   │   ├── zep/                  # Zep reimplementation (temporal knowledge graph)
+│   │   └── nemori/               # Nemori reimplementation (adaptive memory distillation)
+│   ├── evaluation/               # set-F1 / standard F1 / BLEU-1, per-category report
+│   └── run.py                    # experiment runner CLI (checkpoints, error isolation)
+├── notebooks/                    # guide chapters 01–05
+├── scripts/                      # fetch_data.py (data), fetch_reference.py (references)
+├── external/                     # upstream repos (gitignored — committed only as SHA pins)
+├── runs/                         # experiment results + config snapshots (gitignored)
+└── tests/                        # loader integrity & scoring-function tests
 ```
 
-## 설계 결정과 이유
+## Design Decisions and Why
 
-**1. 원본 MemoryOS는 저장소에 포함하지 않는다.**
-타인의 repo를 통째로 커밋하면 라이선스·이력이 오염된다. 대신 `config.py`의
-`MEMORYOS_SHA` 한 줄만 커밋하고, `scripts/fetch_reference.py`가 그 SHA로
-클론/검증한다. 누가 언제 받아도 정확히 같은 코드 = baseline이 어떤 코드에서
-나온 수치인지 항상 답할 수 있다.
+**1. Upstream repos are not vendored into this repository.**
+Committing someone else's repo wholesale pollutes licensing and history.
+Instead we commit only the SHA pins in `config.py`, and
+`scripts/fetch_reference.py` clones/verifies at those SHAs. Anyone, anytime,
+gets exactly the same code — so we can always answer which code a baseline
+number came from.
 
-**1-1. 벤치마크 데이터는 원 출처에서 받는다.**
-LoCoMo-10의 원 출처는 snap-research/locomo (Maharana et al., ACL 2024)다.
-`scripts/fetch_data.py`가 고정 커밋(`LOCOMO_SHA`)에서 내려받고 SHA-256
-체크섬(`LOCOMO_SHA256`)으로 내용을 검증한다 — 시점과 내용의 이중 고정.
-MemoryOS repo에도 사본이 vendored돼 있지만, 그건 "한 논문의 스냅샷"이지
-벤치마크가 아니다. (2026-07-03 검증: 두 파일은 바이트 단위로 동일하므로
-점수 비교 가능성에는 영향 없음.)
+**1-1. Benchmark data comes from the original source.**
+LoCoMo-10 originates from snap-research/locomo (Maharana et al., ACL 2024).
+`scripts/fetch_data.py` downloads it at a pinned commit (`LOCOMO_SHA`) and
+verifies the contents with a SHA-256 checksum (`LOCOMO_SHA256`) — a double
+pin of both time and content. A copy is vendored in the MemoryOS repo too,
+but that is "one paper's snapshot," not the benchmark. (Verified 2026-07-03:
+the two files are byte-identical, so score comparability is unaffected.)
 
-**2. MemoryOS를 어댑터로 감싸지 않고 재구현한다.**
-STM/MTM/LPM, heat 계산, eviction을 직접 짜야 진짜 이해가 되고, 이후
-cause-aware forgetting 변형을 붙일 때 남의 연구 코드가 아니라 내 코드를
-수정하게 된다. 원본은 읽기 교재이자, 논문이 침묵하는 상수·프롬프트의 출처로 쓴다.
+**2. Methods are reimplemented, not wrapped as adapters.**
+Writing STM/MTM/LPM, heat computation, eviction — or a knowledge graph, or a
+prediction-error distillation pipeline — by hand is what produces real
+understanding, and it means that when a cause-aware forgetting variant gets
+attached later, we modify *our* code, not someone else's research code. The
+originals are read as textbooks, and as the source for constants and prompts
+the papers stay silent on.
 
-**3. 재구현의 명세서는 논문이다. 코드는 참고자료.**
-원본 eval 코드는 논문과 다르고(LFU 삭제, 체인 통째 이관, 죽은 recency)
-버그도 있다(발화 유실, 엉뚱한 세그먼트 heat 상승). 어차피 LLM도 다르므로
-(qwen3.5-9b-mlx vs gpt-4o-mini) 코드 버그까지 복제할 이유가 없다 —
-**논문 서술대로 구현**하고, 논문이 침묵하는 상수(α·β·γ 등)만 코드에서 차용한다.
-따라서 우리 baseline은 "논문 명세의 MemoryOS + qwen3.5-9b-mlx(로컬 LM Studio)"이며,
-논문 표의 수치와 직접 비교하지 않는다. 변형(forgetting) 실험의 기준선으로만 쓴다.
+**3. The spec for a reimplementation is the paper. Code is reference material.**
+Upstream eval code diverges from its paper (LFU deletion, whole-chain
+migration, dead recency) and has bugs (dropped utterances, wrong segments
+gaining heat). Since the LLM differs anyway (qwen3.5-9b-mlx vs gpt-4o-mini),
+there is no reason to replicate the code bugs — we **implement as the paper
+describes** and borrow only the constants the paper omits (α·β·γ, etc.) from
+the code. So our baseline is "the paper-spec method + qwen3.5-9b-mlx (local
+LM Studio)," and we do not compare directly against the paper's table
+numbers. It serves only as the reference line for variant (forgetting)
+experiments.
 
-**4. 메소드는 공통 인터페이스 뒤에 둔다.**
-`ingest(turn)` / `answer(question)`만 구현하면 어떤 memory 시스템이든
-같은 러너·같은 채점기로 평가된다. baseline과 변형이 **완전히 같은 조건**에서
-비교되는 것이 이 하네스의 존재 이유다.
+**4. Methods sit behind a common interface.**
+Implement `ingest(turn)` / `answer(question)` and any memory system is
+evaluated by the same runner and scorer. Baseline and variant being compared
+under **exactly the same conditions** is the whole reason this harness exists.
 
-**5. 사소하지만: `eval/`이 아니라 `evaluation/`.**
-`eval`은 Python 내장 함수라 모듈명으로 쓰면 shadowing 경고가 난다.
-원본 repo는 `eval/`을 쓰지만 우리는 우리 규칙을 따른다.
+**5. Minor but: `evaluation/`, not `eval/`.**
+`eval` is a Python builtin, so a module of that name triggers a shadowing
+warning. The upstream repo uses `eval/`; we follow our own rule.
 
-## 시작하기
+## Getting Started
 
 ```bash
-uv sync                              # Python 3.12 + 의존성 (uv.lock으로 고정)
-uv run scripts/fetch_data.py         # LoCoMo-10을 원 출처에서 (SHA-256 검증)
-uv run scripts/fetch_reference.py    # external/MemoryOS를 고정 SHA로 준비
+uv sync                              # Python 3.12 + deps (pinned via uv.lock)
+uv run scripts/fetch_data.py         # LoCoMo-10 from the original source (SHA-256 verified)
+uv run scripts/fetch_reference.py    # prepare external/ references at pinned SHAs
 ```
 
-LLM은 로컬 LM Studio다 (`localhost:1234`, `qwen3.5-9b-mlx`) — API 키가
-필요 없다. 서버에 모델을 로드할 때 두 가지가 필수: **context length 16384**,
-**thinking 끄기** (Prompt Template(Jinja) 최상단에
-`{%- set enable_thinking = false %}`). Groq free API는 폴백 전용이다
-(TPM 6K 한도로 실용 불가 실측 — `config.py` 주석 참고). 원 논문은
-gpt-4o-mini였으므로 논문 수치와의 직접 비교는 포기하고, **같은 모델로 잰
-자체 baseline vs 변형**의 비교에 집중한다. 데이터 탐구·메트릭·차분 테스트는
-LLM 없이 전부 가능하다.
+The LLM is a local LM Studio (`localhost:1234`, `qwen3.5-9b-mlx`) — no API
+key needed. Two things are required when loading the model: **context length
+16384** and **thinking disabled** (put `{%- set enable_thinking = false %}`
+at the top of the Jinja Prompt Template). The Groq free API is fallback-only
+(measured impractical at the 6K TPM limit — see `config.py` comments). The
+original papers used gpt-4o-mini, so we give up direct comparison to paper
+numbers and focus on **self-baseline vs variant under the same model**.
+Dataset exploration, metrics, and diff tests all run without an LLM.
 
-## 현재 상태 — 전량 baseline (LoCoMo 10편, 1,540문항)
+## Current Status — Full Baseline (LoCoMo 10 dialogues, 1,540 questions)
 
-Zep·Nemori는 전량 10편을 qwen3.5-9b-mlx로 완주한 메소드별 set_f1.
-MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(커밋 안 됨):
+Per-method set_f1 from running the full 10 dialogues on qwen3.5-9b-mlx for
+Zep and Nemori. MemoryOS is the conv-26 smoke value (full run pending).
+Artifacts: `runs/` (not committed):
 
 | category | n | MemoryOS* | Zep | Nemori |
 |---|---|---|---|---|
@@ -96,65 +110,82 @@ MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(�
 | OPEN_DOMAIN | 96 | 0.304 | 0.135 | 0.190 |
 | SINGLE_HOP | 841 | 0.357 | **0.500** | 0.462 |
 | ADVERSARIAL ↓ | 446 | 0.370 | 0.286 | **0.236** |
-| **OVERALL (1~4)** | 1540 | 0.322 | 0.380 | **0.417** |
+| **OVERALL (1–4)** | 1540 | 0.322 | 0.380 | **0.417** |
 
-*MemoryOS는 conv-26 스모크값. ADVERSARIAL은 함정 오답 기준이라 낮을수록
-좋다(↓). 대화당 비용: Zep ~1만 콜/~36h(message 단위 처리), Nemori
-~370 콜(episode 단위) — 논문 §4.3의 효율 주장대로 자릿수가 다르다.
+*MemoryOS is the conv-26 smoke value. ADVERSARIAL is scored against trap
+answers, so lower is better (↓). Cost per dialogue: Zep ~10k calls/~36h
+(message-wise processing), Nemori ~370 calls (episode-wise) — an
+order-of-magnitude difference, as the efficiency claim in the paper (§4.3)
+predicts.
 
-패턴: **Nemori의 temporal 0.434는 Zep(0.177)의 2.4배** — episode 서사가
-상대 시점("yesterday")을 절대 날짜로 앵커링하는 설계(논문 §3.2.2)가 그대로
-점수가 됐다. adversarial도 최저(=최선)로, 함정 질문에 기억을 지어내는
-빈도가 가장 낮다. 반대로 single-hop은 Zep(0.500)이 앞선다 — 단순 사실
-회수는 knowledge graph의 정밀 검색이 유리. 논문이 주장한 temporal 우위와
-전체 우위(Table 2)가 로컬 9B에서도 방향 그대로 재현된다.
+Pattern: **Nemori's temporal 0.434 is 2.4× Zep's (0.177)** — the design of
+anchoring relative references ("yesterday") to absolute dates in the episode
+narrative (paper §3.2.2) turns directly into score. Adversarial is also
+lowest (=best): it fabricates memories for trap questions least often.
+Conversely, single-hop favors Zep (0.500) — simple fact retrieval benefits
+from a knowledge graph's precise search. The paper's claimed temporal
+advantage and overall lead (Table 2) reproduce, direction intact, on a
+local 9B.
 
-## 가이드 로드맵 (notebooks/)
+## Guide Roadmap (notebooks/)
 
-| 챕터 | 주제 | 배우는 것 |
+| Chapter | Topic | What you learn |
 |---|---|---|
-| 01 | LoCoMo 데이터셋 | 10 샘플 / 5,882 턴 / 1,986 QA. 카테고리(1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial)를 evidence 개수·답변 형태로 데이터에서 직접 검증 |
-| 02 | Memory 검증 방법 | ingest → answer → score 패러다임. repo식 set-F1 vs 표준 F1 vs BLEU-1, 배치 채점기 |
-| 03 | MemoryOS 관찰 | 실제 대화 조각을 MemoryOS에 먹이고 기억의 형성·회상·승격·forgetting을 지켜본다 (LLM 실호출 — 기록된 실행은 Groq) |
-| 04 (예정) | 실험 실행 | 스모크 → 전량, 비용 관리, config 스냅샷, temperature 등 재현성 함정 |
-| 05 (예정) | 새 메소드 만들기 | 인터페이스에 내 메소드 꽂기 — cause-aware forgetting이 여기서 시작 |
+| 01 | LoCoMo dataset | 10 samples / 5,882 turns / 1,986 QA. Verify the categories (1 multi-hop, 2 temporal, 3 open-domain, 4 single-hop, 5 adversarial) directly from the data via evidence counts and answer shapes |
+| 02 | How to verify memory | The ingest → answer → score paradigm. repo-style set-F1 vs standard F1 vs BLEU-1, the batch scorer |
+| 03 | Observing MemoryOS | Feed real dialogue fragments to MemoryOS and watch memory form, recall, promote, and forget (real LLM calls) |
+| 04 | Observing Zep | Build a temporal knowledge graph — entity/fact extraction, bi-temporal stamps, communities, RRF search |
+| 05 | Observing Nemori | Adaptive memory distillation — partition → narrative episode → merge, semantic distillation via predict-calibrate |
 
-## Baseline 재현 시 알아둘 것 (원본 코드의 특이점)
+## Notes for Reproducing the Baseline (upstream code quirks)
 
-원본 `eval/`을 읽으며 확인한, 논문·pypi 패키지와 다른 지점들:
+Points found while reading the upstream `eval/` that differ from the paper /
+pypi package:
 
-- `ShortTermMemory(max_capacity=1)` — 논문은 7, pypi 기본값은 10. 매 턴 evict가
-  일어나 턴마다 LLM 호출이 발생하는 원인.
-- 실제 LLM 클라이언트는 `utils.py`의 모듈 전역 `gpt_client` 하나다.
-  `OpenAIClient` 클래스의 key/base_url 설정은 openai 1.x에서 죽은 코드.
-- 모델은 `gpt-4o-mini` 하드코딩, **temperature=0.7** — 실행마다 답이 달라질 수
-  있다는 뜻. 메소드 비교 실험에서는 이 분산을 통제해야 한다.
-- 원본 F1은 set-token 방식(토큰 빈도 무시)이라 표준 F1과 다르다. BLEU-1은
-  원본 repo에 아예 없다 → 우리 `evaluation/`이 셋 다 계산한다.
-- `get_embedding()`이 호출마다 SentenceTransformer를 새로 로드한다(성능 함정).
-- cat5(adversarial) 446문항 중 444개가 empty answer — 채점 시 제외 옵션 필요.
-- **MTM `max_capacity=2000` vs 대화당 페이지 최대 ~340개 → 벤치마크에서
-  heat 기반 forgetting(삭제)이 한 번도 발동하지 않는다.** 승격(heat>5 → LPM)만
-  작동. 또한 recency는 실행 중 사실상 상수(γ=0.0001, 실제 벽시계 기준)라
-  heat ≈ 0.8·N_visit + 0.8·L_interaction. forgetting 실험은 용량 압력을
-  따로 만들어야 하며, 그 조건의 baseline도 별도 측정 필요.
-- `process_conversation`의 pair folding(발화→page 묶기) 로직은 세션이 speaker_b로 시작하는 경우
-  (124/272 세션)를 잘못 다룬다: **61턴이 덮어쓰기로 유실**되고 **57턴이
-  세션 경계를 넘어 잘못 짝지어진다** (타임스탬프도 이전 세션 것으로 오염).
-  영향 측정 결과 **QA evidence 94건**이 유실(4)/오염(90) 턴을 가리키며,
-  특히 temporal 질문은 잘못된 타임스탬프로 저장된 발화를 근거로 요구한다.
-  → 우리 재구현은 유실 없는 pair folding을 쓴다 (논문 우선 전략 — 버그 비복제).
+- `ShortTermMemory(max_capacity=1)` — the paper says 7, the pypi default is
+  10. This causes an evict every turn, which is why an LLM call happens per turn.
+- The actual LLM client is a single module-global `gpt_client` in `utils.py`.
+  The `OpenAIClient` class's key/base_url config is dead code under openai 1.x.
+- The model is hardcoded `gpt-4o-mini` with **temperature=0.7** — meaning
+  answers can differ run to run. Method-comparison experiments must control
+  for this variance.
+- The upstream F1 is set-token based (ignoring token frequency), so it
+  differs from standard F1. BLEU-1 is absent from the upstream repo entirely
+  → our `evaluation/` computes all three.
+- `get_embedding()` reloads SentenceTransformer on every call (a performance trap).
+- 444 of 446 cat5 (adversarial) questions have empty answers — a
+  scoring-time exclusion option is needed.
+- **MTM `max_capacity=2000` vs at most ~340 pages per dialogue → heat-based
+  forgetting (deletion) never fires on the benchmark.** Only promotion
+  (heat>5 → LPM) works. Also recency is effectively constant during a run
+  (γ=0.0001, real wall-clock based), so heat ≈ 0.8·N_visit +
+  0.8·L_interaction. Forgetting experiments must create capacity pressure
+  separately, and that condition's baseline needs its own measurement.
+- The pair-folding logic in `process_conversation` (turns → page grouping)
+  mishandles sessions starting with speaker_b (124/272 sessions): **61 turns
+  are lost to overwrites** and **57 turns are mispaired across session
+  boundaries** (timestamps polluted with the previous session's). Impact
+  analysis shows **94 QA evidence items** point at lost (4)/polluted (90)
+  turns; temporal questions in particular require utterances stored with the
+  wrong timestamp. → Our reimplementation uses lossless pair folding
+  (paper-first strategy — no bug replication).
 
-## 출처 및 라이선스
+## Attribution & License
 
-- **이 저장소의 코드**: MIT ([LICENSE](LICENSE))
-- **MemoryOS** ([BAI-LAB/MemoryOS](https://github.com/BAI-LAB/MemoryOS), Apache-2.0;
-  논문 arXiv:2506.06326): 재구현의 참고 구현체.
-  `prompt_templates.py`의 프롬프트와 90차원 성격 항목 목록은 해당 repo
-  (`eval/`, `memoryos-pypi/`)에서 차용·수정했다. 차용분에는 Apache-2.0이
-  적용된다 — 전문은 [licenses/MemoryOS-Apache-2.0.txt](licenses/MemoryOS-Apache-2.0.txt).
+- **Code in this repository**: MIT ([LICENSE](LICENSE))
+- **MemoryOS** ([BAI-LAB/MemoryOS](https://github.com/BAI-LAB/MemoryOS),
+  Apache-2.0; paper arXiv:2506.06326): reference implementation for the
+  reimplementation. The prompts in `prompt_templates.py` and the 90-dimension
+  personality item list were borrowed and adapted from that repo (`eval/`,
+  `memoryos-pypi/`). Apache-2.0 applies to the borrowed parts — full text at
+  [licenses/MemoryOS-Apache-2.0.txt](licenses/MemoryOS-Apache-2.0.txt).
+- **Zep** ([getzep/graphiti](https://github.com/getzep/graphiti), Apache-2.0;
+  paper arXiv:2501.13956) and **Nemori**
+  ([nemori-ai/nemori](https://github.com/nemori-ai/nemori), MIT; paper
+  arXiv:2508.03341): reference implementations, pinned in `external/` and
+  borrowed from only where the papers stay silent on constants and prompts.
 - **LoCoMo** ([snap-research/locomo](https://github.com/snap-research/locomo),
-  CC BY-NC 4.0; Maharana et al., ACL 2024): 벤치마크 데이터.
-  **데이터 파일은 이 저장소에 포함되지 않으며** `scripts/fetch_data.py`가
-  원 출처에서 받는다. 노트북 출력에 포함된 대화 발췌는 비상업적 연구
-  목적의 인용이다.
+  CC BY-NC 4.0; Maharana et al., ACL 2024): benchmark data.
+  **The data file is not included in this repository** — `scripts/fetch_data.py`
+  fetches it from the original source. Dialogue excerpts in notebook outputs
+  are citations for non-commercial research purposes.

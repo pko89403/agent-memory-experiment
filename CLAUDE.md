@@ -3,7 +3,8 @@
 LoCoMo 벤치마크에서 agent memory 논문들을 재구현·검증·비교하는 스터디
 프로젝트. 논문은 계속 추가된다 — MemoryOS(baseline 확보), Zep(temporal
 knowledge graph, 전량 런 중), Nemori(adaptive memory distillation, 스모크
-단계). cause-aware forgetting 변형 실험이 최종 목표. 상세는 README.md.
+단계). cause-aware forgetting 변형 실험이 최종 목표. 상세는 README.ko.md
+(README.md는 영문 메인 — 두 벌 동기 관리, 우리 확인은 한국어판).
 
 ## 작업 규범 (사용자와 합의된 것 — 어기지 말 것)
 
