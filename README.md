@@ -5,8 +5,10 @@
 A project to **reimplement, verify, and compare** agent memory papers on the
 LoCoMo benchmark. We keep adding methods — MemoryOS (arXiv:2506.06326), Zep
 (arXiv:2501.13956, temporal knowledge graph), and Nemori (arXiv:2508.03341,
-adaptive memory distillation) are reimplemented so far — with the end goal of
-testing a cause-aware forgetting variant under the same conditions.
+adaptive memory distillation) are reimplemented so far, plus one composition
+(Nemori × A-MEM, arXiv:2502.12110) that swaps a single part to isolate a
+question — with the end goal of testing a cause-aware forgetting variant under
+the same conditions.
 
 This repository is **both code and guide**:
 
@@ -24,10 +26,12 @@ This repository is **both code and guide**:
 │   ├── methods/                  # common interface: ingest(turn) / answer(question)
 │   │   ├── memoryos/             # MemoryOS reimplementation (method #1, baseline)
 │   │   ├── zep/                  # Zep reimplementation (temporal knowledge graph)
-│   │   └── nemori/               # Nemori reimplementation (adaptive memory distillation)
+│   │   ├── nemori/               # Nemori reimplementation (adaptive memory distillation)
+│   │   ├── amem/                 # A-MEM parts (note construct/link/evolve) — not a standalone method
+│   │   └── nemori_amem/          # composition: Nemori distillation + A-MEM note management
 │   ├── evaluation/               # set-F1 / standard F1 / BLEU-1, per-category report
 │   └── run.py                    # experiment runner CLI (checkpoints, error isolation)
-├── notebooks/                    # guide chapters 01–05
+├── notebooks/                    # guide chapters 01–06
 ├── scripts/                      # fetch_data.py (data), fetch_reference.py (references)
 ├── external/                     # upstream repos (gitignored — committed only as SHA pins)
 ├── runs/                         # experiment results + config snapshots (gitignored)
@@ -99,24 +103,25 @@ with no LLM at all.
 
 ## Current Status — Full Baseline (LoCoMo 10 dialogues, 1,540 questions)
 
-Per-method set_f1 over the full 10 dialogues on qwen3.5-9b-mlx, for Zep and
-Nemori. MemoryOS is the conv-26 smoke value (full run still pending).
-Artifacts live in `runs/` (not committed):
+Per-method set_f1 over the full 10 dialogues on qwen3.5-9b-mlx. The last
+column is a composition, not a fourth paper — see below. Artifacts live in
+`runs/` (not committed):
 
-| category | n | MemoryOS* | Zep | Nemori |
-|---|---|---|---|---|
-| MULTI_HOP | 282 | 0.276 | 0.337 | **0.340** |
-| TEMPORAL | 321 | 0.301 | 0.177 | **0.434** |
-| OPEN_DOMAIN | 96 | 0.304 | 0.135 | 0.190 |
-| SINGLE_HOP | 841 | 0.357 | **0.500** | 0.462 |
-| ADVERSARIAL ↓ | 446 | 0.370 | 0.286 | **0.236** |
-| **OVERALL (1–4)** | 1540 | 0.322 | 0.380 | **0.417** |
+| category | n | MemoryOS | Zep | Nemori | Nemori×A-MEM |
+|---|---|---|---|---|---|
+| MULTI_HOP | 282 | 0.257 | 0.337 | 0.340 | **0.342** |
+| TEMPORAL | 321 | 0.282 | 0.177 | **0.434** | 0.414 |
+| OPEN_DOMAIN | 96 | 0.190 | 0.135 | **0.190** | 0.186 |
+| SINGLE_HOP | 841 | 0.348 | **0.500** | 0.462 | 0.456 |
+| ADVERSARIAL ↓ | 446 | 0.287 | 0.286 | 0.236 | **0.214** |
+| **OVERALL (1–4)** | 1540 | 0.307 | 0.380 | **0.417** | 0.410 |
 
-*MemoryOS is the conv-26 smoke value. ADVERSARIAL is scored against trap
-answers, so lower is better (↓). Cost per dialogue: Zep runs ~10k calls / ~36h
-(it processes message by message); Nemori runs ~370 calls (episode by episode)
-— an order of magnitude apart, exactly as the paper's efficiency claim (§4.3)
-predicts.
+ADVERSARIAL is scored against trap answers, so lower is better (↓). Cost per
+dialogue: Zep runs ~10k calls / ~36h (message by message), MemoryOS ~1.7k
+calls / ~3h, Nemori ~370 calls (episode by episode) — an order of magnitude
+apart, exactly as the paper's efficiency claim (§4.3) predicts. MemoryOS's
+full run landed below its conv-26 smoke value (0.322 → 0.307), so among the
+three papers the ranking is Nemori > Zep > MemoryOS.
 
 The standout: **Nemori's temporal 0.434 is 2.4× Zep's (0.177)**. Anchoring
 relative references ("yesterday") to absolute dates inside the episode
@@ -127,6 +132,36 @@ fact lookup rewards a knowledge graph's precise search. The paper's temporal
 edge and overall lead (Table 2) hold up here, at least in direction, on a
 local 9B.
 
+### The composition: does memory management beat naive append?
+
+Nemori distills facts and appends them to a flat list. A-MEM
+(arXiv:2502.12110) does the opposite — it takes whatever it is given and
+*manages* it: every note gets LLM-generated keywords/tags/context, links to
+its semantic neighbors, and neighbors get rewritten as new notes arrive. So
+we swapped one part and held everything else fixed: Nemori's semantic store
+became an A-MEM note store, the answer path stayed Nemori's, all
+hyperparameters unchanged. One variable, one question — **does management on
+top of distilled facts beat naive append?**
+
+**Mostly no.** Overall lands at 0.410 against 0.417, within noise, for roughly
+2× the ingest calls. The one real gain is adversarial: **0.236 → 0.214**, the
+best of any method here — linking and evolution tighten the topical coherence
+of what gets retrieved, so trap questions pull back less spurious material.
+Temporal moves the other way (−0.020), and we have not established why: the
+displayed text is the unmodified statement, so evolution cannot corrupt an
+answer directly; retrieval *ranking* is the likely culprit, and that is
+measurable work still on the list.
+
+One implementation note worth repeating, because it cost a run: A-MEM embeds
+`concat(content, keywords, tags, context)` (Eq. 3), and we initially ran
+Nemori's evoke gate against those vectors. Nemori's τ=0.55 was calibrated in
+statement space; in concat space the whole similarity distribution sinks, the
+gate closed on 3 of 14 calls instead of 6 of 7, and the distillation cascade
+collapsed into its cold-start path. The fix is to index both spaces — evoke on
+statement vectors, search and neighbor lookup on concat vectors. **A
+similarity threshold is a function of its embedding space, not a constant you
+carry across.**
+
 ## Guide Roadmap (notebooks/)
 
 | Chapter | Topic | What you learn |
@@ -136,6 +171,7 @@ local 9B.
 | 03 | Observing MemoryOS | Feed real dialogue fragments to MemoryOS and watch memory form, recall, promote, and forget (real LLM calls) |
 | 04 | Observing Zep | Build a temporal knowledge graph — entity/fact extraction, bi-temporal stamps, communities, RRF search |
 | 05 | Observing Nemori | Adaptive memory distillation — partition → narrative episode → merge, semantic distillation via predict-calibrate |
+| 06 | Nemori × A-MEM | Swapping one part: distilled facts become linked, self-evolving notes. Watch the links form, then measure the evoke gate and the retrieval slots |
 
 ## Notes for Reproducing the Baseline (upstream code quirks)
 
@@ -179,10 +215,14 @@ pypi package:
   `memoryos-pypi/`). Apache-2.0 applies to the borrowed parts — full text at
   [licenses/MemoryOS-Apache-2.0.txt](licenses/MemoryOS-Apache-2.0.txt).
 - **Zep** ([getzep/graphiti](https://github.com/getzep/graphiti), Apache-2.0;
-  paper arXiv:2501.13956) and **Nemori**
+  paper arXiv:2501.13956), **Nemori**
   ([nemori-ai/nemori](https://github.com/nemori-ai/nemori), MIT; paper
-  arXiv:2508.03341): reference implementations, pinned in `external/` and drawn
-  on only where the papers leave constants or prompts unspecified.
+  arXiv:2508.03341), and **A-MEM**
+  ([agiresearch/A-mem](https://github.com/agiresearch/A-mem), MIT; paper
+  arXiv:2502.12110): reference implementations, pinned in `external/` and drawn
+  on only where the papers leave constants or prompts unspecified. A-MEM's
+  note-construction and evolution prompts were adapted from that repo, since
+  the paper's appendix versions are incomplete.
 - **LoCoMo** ([snap-research/locomo](https://github.com/snap-research/locomo),
   CC BY-NC 4.0; Maharana et al., ACL 2024): benchmark data.
   **The data file is not included in this repository** — `scripts/fetch_data.py`

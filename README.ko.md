@@ -5,8 +5,9 @@
 LoCoMo 벤치마크 위에서 agent memory 논문들을 **재구현하고, 검증하고, 비교하는** 프로젝트.
 메소드는 계속 추가된다 — MemoryOS(arXiv:2506.06326), Zep(arXiv:2501.13956,
 temporal knowledge graph), Nemori(arXiv:2508.03341, adaptive memory
-distillation)를 재구현했고, cause-aware forgetting 변형을 같은 조건에서
-실험하는 것이 최종 목표다.
+distillation)를 재구현했고, 여기에 부품 하나만 갈아 끼워 질문 하나를
+분리해낸 합성판(Nemori × A-MEM, arXiv:2502.12110)이 더해졌다.
+cause-aware forgetting 변형을 같은 조건에서 실험하는 것이 최종 목표다.
 
 이 저장소는 **코드이자 가이드**다:
 
@@ -24,10 +25,12 @@ distillation)를 재구현했고, cause-aware forgetting 변형을 같은 조건
 │   ├── methods/                  # 공통 인터페이스: ingest(turn) / answer(question)
 │   │   ├── memoryos/             # MemoryOS 재구현 (method #1, baseline)
 │   │   ├── zep/                  # Zep 재구현 (temporal knowledge graph)
-│   │   └── nemori/               # Nemori 재구현 (adaptive memory distillation)
+│   │   ├── nemori/               # Nemori 재구현 (adaptive memory distillation)
+│   │   ├── amem/                 # A-MEM 부품 (note construct/link/evolve) — 단독 메소드 아님
+│   │   └── nemori_amem/          # 합성: Nemori distillation + A-MEM note management
 │   ├── evaluation/               # set-F1 / 표준 F1 / BLEU-1, 카테고리별 리포트
 │   └── run.py                    # 실험 러너 CLI (체크포인트·에러 격리)
-├── notebooks/                    # 가이드 챕터 01~05
+├── notebooks/                    # 가이드 챕터 01~06
 ├── scripts/                      # fetch_data.py(데이터), fetch_reference.py(레퍼런스)
 ├── external/                     # 원본 repo들 (gitignore — SHA 핀으로만 커밋)
 ├── runs/                         # 실험 결과 + config 스냅샷 (gitignore)
@@ -91,21 +94,23 @@ LLM 없이 전부 가능하다.
 
 ## 현재 상태 — 전량 baseline (LoCoMo 10편, 1,540문항)
 
-Zep·Nemori는 전량 10편을 qwen3.5-9b-mlx로 완주한 메소드별 set_f1.
-MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(커밋 안 됨):
+전량 10편을 qwen3.5-9b-mlx로 완주한 메소드별 set_f1. 마지막 열은 네 번째
+논문이 아니라 합성판이다 (아래 참고). 아티팩트: `runs/`(커밋 안 됨):
 
-| category | n | MemoryOS* | Zep | Nemori |
-|---|---|---|---|---|
-| MULTI_HOP | 282 | 0.276 | 0.337 | **0.340** |
-| TEMPORAL | 321 | 0.301 | 0.177 | **0.434** |
-| OPEN_DOMAIN | 96 | 0.304 | 0.135 | 0.190 |
-| SINGLE_HOP | 841 | 0.357 | **0.500** | 0.462 |
-| ADVERSARIAL ↓ | 446 | 0.370 | 0.286 | **0.236** |
-| **OVERALL (1~4)** | 1540 | 0.322 | 0.380 | **0.417** |
+| category | n | MemoryOS | Zep | Nemori | Nemori×A-MEM |
+|---|---|---|---|---|---|
+| MULTI_HOP | 282 | 0.257 | 0.337 | 0.340 | **0.342** |
+| TEMPORAL | 321 | 0.282 | 0.177 | **0.434** | 0.414 |
+| OPEN_DOMAIN | 96 | 0.190 | 0.135 | **0.190** | 0.186 |
+| SINGLE_HOP | 841 | 0.348 | **0.500** | 0.462 | 0.456 |
+| ADVERSARIAL ↓ | 446 | 0.287 | 0.286 | 0.236 | **0.214** |
+| **OVERALL (1~4)** | 1540 | 0.307 | 0.380 | **0.417** | 0.410 |
 
-*MemoryOS는 conv-26 스모크값. ADVERSARIAL은 함정 오답 기준이라 낮을수록
-좋다(↓). 대화당 비용: Zep ~1만 콜/~36h(message 단위 처리), Nemori
+ADVERSARIAL은 함정 오답 기준이라 낮을수록 좋다(↓). 대화당 비용: Zep
+~1만 콜/~36h(message 단위 처리), MemoryOS ~1.7천 콜/~3h, Nemori
 ~370 콜(episode 단위) — 논문 §4.3의 효율 주장대로 자릿수가 다르다.
+MemoryOS 전량은 conv-26 스모크값보다 낮게 나왔다(0.322 → 0.307) —
+논문 3종의 순위는 Nemori > Zep > MemoryOS.
 
 패턴: **Nemori의 temporal 0.434는 Zep(0.177)의 2.4배** — episode 서사가
 상대 시점("yesterday")을 절대 날짜로 앵커링하는 설계(논문 §3.2.2)가 그대로
@@ -113,6 +118,32 @@ MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(�
 빈도가 가장 낮다. 반대로 single-hop은 Zep(0.500)이 앞선다 — 단순 사실
 회수는 knowledge graph의 정밀 검색이 유리. 논문이 주장한 temporal 우위와
 전체 우위(Table 2)가 로컬 9B에서도 방향 그대로 재현된다.
+
+### 합성판 — memory management가 naive append를 이기는가
+
+Nemori는 fact를 distill해서 납작한 리스트에 append한다. A-MEM
+(arXiv:2502.12110)은 반대로, 받은 것을 **관리**한다 — note마다 LLM이
+keywords·tags·context를 붙이고, 의미적 이웃과 링크를 잇고, 새 note가
+들어올 때마다 이웃을 다시 쓴다. 그래서 부품 하나만 바꿨다: Nemori의
+semantic store를 A-MEM note store로 교체하고, 답변 경로와 하이퍼파라미터는
+전부 그대로 뒀다. 단일 변인, 단일 질문 — **distill된 fact 위에 management를
+얹으면 naive append보다 나은가?**
+
+**대체로 아니다.** overall 0.410 vs 0.417로 오차 범위 안이고, ingest 콜은
+약 2배다. 유일한 실질 이득은 adversarial **0.236 → 0.214** — 여기 있는 어떤
+메소드보다 낮다. 링크와 evolution이 회수 컨텍스트의 주제 응집을 높여
+함정 질문에서 엉뚱한 재료를 덜 끌어오는 것으로 보인다. 반대로 temporal은
+−0.020으로 내려갔는데 기전은 아직 규명하지 못했다: 표시되는 텍스트는
+statement 원문 그대로라 evolution이 답을 직접 훼손할 수는 없고, 회수
+**순위** 변화가 유력하다 — 계측이 남은 숙제다.
+
+구현에서 한 번 값을 치른 대목: A-MEM의 임베딩은 `concat(content, keywords,
+tags, context)`인데(Eq.3), 처음엔 Nemori의 evoke 게이트도 그 벡터로
+돌렸다. τ=0.55는 statement 공간에서 캘리브레이션한 값이라 concat 공간에서는
+유사도 분포가 통째로 내려앉았고, 게이트가 6/7이 아니라 3/14로 닫히면서
+distillation cascade가 cold start 경로로 붕괴했다. 해법은 두 공간을 각각
+색인하는 것 — evoke는 statement 벡터, search·이웃 검색은 concat 벡터.
+**similarity threshold는 상수가 아니라 임베딩 공간의 함수다.**
 
 ## 가이드 로드맵 (notebooks/)
 
@@ -122,7 +153,8 @@ MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(�
 | 02 | Memory 검증 방법 | ingest → answer → score 패러다임. repo식 set-F1 vs 표준 F1 vs BLEU-1, 배치 채점기 |
 | 03 | MemoryOS 관찰 | 실제 대화 조각을 MemoryOS에 먹이고 기억의 형성·회상·승격·forgetting을 지켜본다 (LLM 실호출) |
 | 04 | Zep 관찰 | temporal knowledge graph 구축 — entity·fact 추출, bi-temporal 스탬프, community, RRF 검색 |
-| 05 | Nemori 관찰 | adaptive memory distillation — partition→서사 episode→병합, predict-calibrate로 semantic 증류 |
+| 05 | Nemori 관찰 | adaptive memory distillation — partition→서사 episode→병합, predict-calibrate로 semantic distillation |
+| 06 | Nemori × A-MEM | 부품 하나 교체 — distill된 fact가 링크되고 스스로 evolve하는 note가 된다. 링크가 생기는 것을 보고, evoke 게이트와 회수 슬롯을 계측한다 |
 
 ## Baseline 재현 시 알아둘 것 (원본 코드의 특이점)
 
@@ -158,6 +190,14 @@ MemoryOS는 conv-26 스모크값(전량 진행 예정). 아티팩트: `runs/`(�
   `prompt_templates.py`의 프롬프트와 90차원 성격 항목 목록은 해당 repo
   (`eval/`, `memoryos-pypi/`)에서 차용·수정했다. 차용분에는 Apache-2.0이
   적용된다 — 전문은 [licenses/MemoryOS-Apache-2.0.txt](licenses/MemoryOS-Apache-2.0.txt).
+- **Zep** ([getzep/graphiti](https://github.com/getzep/graphiti), Apache-2.0;
+  논문 arXiv:2501.13956), **Nemori**
+  ([nemori-ai/nemori](https://github.com/nemori-ai/nemori), MIT; 논문
+  arXiv:2508.03341), **A-MEM**
+  ([agiresearch/A-mem](https://github.com/agiresearch/A-mem), MIT; 논문
+  arXiv:2502.12110): 참고 구현체. `external/`에 SHA로 고정하고, 논문이
+  상수·프롬프트를 명시하지 않은 곳에서만 참고했다. A-MEM의 note 구성·
+  evolution 프롬프트는 논문 부록판이 불완전해서 원본 코드판을 차용·수정했다.
 - **LoCoMo** ([snap-research/locomo](https://github.com/snap-research/locomo),
   CC BY-NC 4.0; Maharana et al., ACL 2024): 벤치마크 데이터.
   **데이터 파일은 이 저장소에 포함되지 않으며** `scripts/fetch_data.py`가
