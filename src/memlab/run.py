@@ -161,13 +161,20 @@ def _write_meta_once(run_dir: Path, run_id: str, meta: dict) -> None:
 # ── CLI: 기본 팩토리 = MemoryOS + default_provider() ─────────────────
 
 
+def memoryos_run_config():
+    """LoCoMo 런의 MemoryOS 설정 — 팩토리와 meta.json이 같은 것을 봐야 한다 (검증 리뷰 A20)."""
+    from memlab.methods.memoryos import MemoryOSConfig
+
+    return MemoryOSConfig()
+
+
 def memoryos_factory(sample: Sample):
     from memlab.llm import default_provider
-    from memlab.methods.memoryos import MemoryOS, MemoryOSConfig
+    from memlab.methods.memoryos import MemoryOS
 
     llm = default_provider()
     method = MemoryOS(llm, sample.speaker_a, sample.speaker_b,
-                      config=MemoryOSConfig())
+                      config=memoryos_run_config())
     return method, llm
 
 
@@ -209,13 +216,39 @@ def nemori_factory(sample: Sample):
     return NemoriMethod(llm, config=nemori_run_config()), llm
 
 
+def nemori_amem_run_config():
+    """nemori×amem 합성 런 설정 — 팩토리와 meta.json이 같은 것을 봐야 한다."""
+    from memlab.methods.nemori_amem import NemoriAmemConfig
+
+    return NemoriAmemConfig()
+
+
+def nemori_amem_factory(sample: Sample):
+    from memlab.llm import default_provider
+    from memlab.methods.nemori_amem import build_nemori_amem
+
+    llm = default_provider()
+    return build_nemori_amem(llm, config=nemori_amem_run_config()), llm
+
+
+# 메소드 등록부 — choices·분기·팩토리가 한 곳에서 파생된다. elif 사슬로
+# 두면 새 메소드가 choices에만 추가되고 분기를 빠뜨렸을 때 else로 흘러
+# 엉뚱한 메소드가 남의 run-id로 checkpoint를 오염시킨다 (검증 리뷰 A21)
+METHOD_SETUPS = {
+    "memoryos": (memoryos_factory, memoryos_run_config),
+    "zep": (zep_factory, zep_run_config),
+    "nemori": (nemori_factory, nemori_run_config),
+    "nemori-amem": (nemori_amem_factory, nemori_amem_run_config),
+}
+
+
 def main() -> None:
     sys.stdout.reconfigure(line_buffering=True)  # 백그라운드 실행에서도 로그가 실시간
     parser = argparse.ArgumentParser(description="LoCoMo 벤치마크 러너")
     parser.add_argument("--run-id", default="baseline", help="runs/ 하위 디렉토리 이름")
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N개 대화만")
     parser.add_argument("--score-only", action="store_true", help="채점만 다시")
-    parser.add_argument("--method", choices=("memoryos", "zep", "nemori"), default="memoryos")
+    parser.add_argument("--method", choices=tuple(METHOD_SETUPS), default="memoryos")
     parser.add_argument(
         "--samples", default=None,
         help="쉼표로 구분한 sample id만 (병렬 워커 분담용, 예: conv-44,conv-47)",
@@ -224,14 +257,8 @@ def main() -> None:
 
     run_dir = RUNS_DIR / args.run_id
     if not args.score_only:
-        if args.method == "zep":
-            factory, config = zep_factory, zep_run_config()
-        elif args.method == "nemori":
-            factory, config = nemori_factory, nemori_run_config()
-        else:
-            from memlab.methods.memoryos import MemoryOSConfig
-
-            factory, config = memoryos_factory, MemoryOSConfig()
+        factory, run_config = METHOD_SETUPS[args.method]
+        config = run_config()
         meta = {
             "method": args.method,
             "llm_model": LLM_MODEL,
