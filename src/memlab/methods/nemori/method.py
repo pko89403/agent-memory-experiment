@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable
+from typing import Callable, Protocol
 
 import numpy as np
 
@@ -55,6 +55,23 @@ from memlab.methods.base import MemoryMethod, Utterance
 from memlab.methods.nemori.llm_ops import EpisodicOps, SemanticOps, generate_answer
 from memlab.methods.nemori.memory import EpisodicStore, SemanticStore
 from memlab.methods.nemori.schema import EpisodicMemory, SemanticInsight
+
+
+class ManagementSystem(Protocol):
+    """논문 §3.3의 management-agnostic 인터페이스 M — Evoke(M_in, M)·
+    Consolidate(K_in, M)의 M. 소비자(NemoriMethod)가 선언하고, 실제로
+    요구하는 표면만 명세한다: 반환 객체는 .statement(컨텍스트 표시용)면
+    충분 (검증 리뷰 A17 — items·.embedding 과잉 명세 제거. 초기엔
+    memory.py(공급자 옆)에 있었으나 소비자 선언 규칙대로 이동).
+    naive append(memory.SemanticStore)·A-MEM 관리(methods/nemori_amem)·
+    (예정) cause-aware forgetting 정책이 같은 자리에 꽂힌다.
+    """
+
+    def consolidate(self, insights: list, occurred_at: datetime) -> None: ...
+
+    def evoke(self, query: np.ndarray, ks: int, tau: float) -> list: ...
+
+    def search(self, query: np.ndarray, m: int) -> list: ...
 
 
 @dataclass(frozen=True)
@@ -86,6 +103,7 @@ class NemoriMethod(MemoryMethod):
         llm: LLMProvider,
         embed: Callable[[str], np.ndarray] = default_embed,
         config: NemoriConfig = NemoriConfig(),
+        semantic_store: ManagementSystem | None = None,  # M (§3.3) — DI seam
     ):
         self._config = config
         self._embed = embed
@@ -93,7 +111,7 @@ class NemoriMethod(MemoryMethod):
         self._episodic_ops = EpisodicOps(llm)
         self._semantic_ops = SemanticOps(llm)
         self._d_e = EpisodicStore()  # D_e
-        self._d_s = SemanticStore()  # D_s
+        self._d_s = semantic_store if semantic_store is not None else SemanticStore()  # D_s
         self._buffer: list[Utterance] = []  # B (§3.2.1)
 
     def ingest(self, utterance: Utterance) -> None:
@@ -188,10 +206,13 @@ class NemoriMethod(MemoryMethod):
             if evoked
             else self._semantic_ops.direct_distill(episode)
         )
-        self._d_s.consolidate([
-            SemanticInsight(
-                statement=s, embedding=tuple(self._embed(s)),
-                source_episode_uuid=episode.uuid,
-            )
-            for s in statements
-        ])
+        self._d_s.consolidate(
+            [
+                SemanticInsight(
+                    statement=s, embedding=tuple(self._embed(s)),
+                    source_episode_uuid=episode.uuid,
+                )
+                for s in statements
+            ],
+            occurred_at=episode.occurred_at,
+        )

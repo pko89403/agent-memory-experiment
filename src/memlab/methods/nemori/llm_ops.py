@@ -76,7 +76,7 @@ CANDIDATE_PREVIEW_CHARS = 200  # 원본 merger.py:181의 후보 절단 길이
 
 
 def _fallback(op: str, default, error: Exception):
-    """LLM 콜 실패를 op별 안전 기본값으로 강등 (zep 관례)."""
+    """LLM 콜 실패를 op별 안전 기본값으로 강등 — memlab.llm.degrade로 이관 예정 (검증 리뷰 A22)."""
     print(f"    [degrade] {op}: {error!r} — 기본값으로 진행")
     return default
 
@@ -184,7 +184,9 @@ def _candidates_text(candidates: list[EpisodicMemory]) -> str:
     return "\n\n".join(blocks)
 
 
-def _statements_text(insights: list[SemanticInsight]) -> str:
+def _statements_text(insights: list) -> str:
+    # ManagementSystem 반환물 — .statement만 소비 (SemanticInsight 또는 A-MEM
+    # MemoryNote; .embedding은 공간이 달라 여기서 만지면 안 된다, 검증 리뷰 A26)
     return "\n".join(f"- {s.statement}" for s in insights) or "None"
 
 
@@ -323,7 +325,7 @@ class SemanticOps:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
 
-    def distill(self, episode: EpisodicMemory, evoked: list[SemanticInsight]) -> list[str]:
+    def distill(self, episode: EpisodicMemory, evoked: list) -> list[str]:
         """Pant + Pdis 연쇄 — 예측하고 gap만 추출 (§3.3.1-3.3.2)."""
         try:
             prediction = self._llm.chat(
@@ -370,7 +372,7 @@ def generate_answer(
     llm: LLMProvider,
     question: str,
     episodes: list[EpisodicMemory],
-    insights: list[SemanticInsight],
+    insights: list,  # ManagementSystem 반환물 (.statement만 소비 — A26)
     include_raw_top: int,
 ) -> str:
     # 컨텍스트 상한 없음 — 실측 전형 ~4.5k 토큰(ctx 16384의 1/3.6). 폭주

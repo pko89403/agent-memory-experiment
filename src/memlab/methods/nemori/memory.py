@@ -27,6 +27,8 @@ LLM 콜이 없는 순수 저장·검색 계층이다.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import numpy as np
 
 from memlab.embedding import cosine_top_k
@@ -65,7 +67,12 @@ class SemanticStore:
         self._items: list[SemanticInsight] = []
         self._vectors: list[np.ndarray] = []
 
-    def consolidate(self, insights: list[SemanticInsight]) -> None:
+    def consolidate(
+        self, insights: list[SemanticInsight], occurred_at: datetime
+    ) -> None:
+        # occurred_at은 이 naive 구현에선 불용 — insight가 무시간 fact라
+        # 저장에 시각이 필요 없다. A-MEM 구현은 note.t의 원천으로 쓴다
+        # (ManagementSystem 프로토콜의 요구, 2026-07-25).
         for insight in insights:
             self._items.append(insight)
             self._vectors.append(np.asarray(insight.embedding))
