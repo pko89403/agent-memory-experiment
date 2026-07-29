@@ -34,6 +34,14 @@ NEMORI_REPO_URL = "https://github.com/nemori-ai/nemori.git"
 # 직전의 리워크(2026-03) 세대임을 커밋 밀도로 확인하고 고정 (2026-07-17).
 NEMORI_SHA = "d2a6dff6e5481214a0be6a2d10147feccfc16244"
 
+AMEM_DIR = EXTERNAL_DIR / "a-mem"
+AMEM_REPO_URL = "https://github.com/agiresearch/A-mem.git"
+# HEAD 핀 (2025-12-12). Zep과 달리 HEAD 드리프트가 없다 — 핵심 방법
+# memory_system.py는 2025-06-26 이후 불변, HEAD의 서드파티 머지는
+# llm_controller.py(Ollama, 미사용)·예제만 건드려 core는 저자 코드 그대로
+# (2026-07-25 실측 확인). eval 프로토콜은 제1저자 WujiangXu/AgenticMemory 참고.
+AMEM_SHA = "ceffb860f0712bbae97b184d440df62bc910ca8d"
+
 # --- data (canonical source, NOT the MemoryOS vendored copy) ---
 # LoCoMo-10 originates from snap-research/locomo (Maharana et al., ACL 2024).
 # We fetch it from there at a pinned commit and verify its checksum.

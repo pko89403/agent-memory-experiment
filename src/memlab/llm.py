@@ -256,3 +256,13 @@ def parse_iso(value: str | None) -> datetime | None:
         return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return None
+
+
+def degrade(op: str, default, error: Exception):
+    """LLM 콜 실패를 op별 안전 기본값으로 강등 — 콜 하나의 실패가 대화
+    (수 시간짜리 ingest)를 죽이지 않게 한다. zep에서 확립한 관례의 공용판
+    (a-mem부터 사용; zep/nemori의 _fallback 로컬 복사본은 정리 사이클에
+    이관 예정 — 검증 리뷰 N7과 같은 계보).
+    """
+    print(f"    [degrade] {op}: {error!r} — 기본값으로 진행")
+    return default

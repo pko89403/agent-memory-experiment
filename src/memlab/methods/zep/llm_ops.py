@@ -66,6 +66,8 @@ JUDGE_MAX_TOKENS = 800
 def _fallback(op: str, default, error: Exception):
     """LLM 콜 실패를 op별 안전 기본값으로 강등 — 발화 하나의 판정 실패가
     대화(수 시간짜리 ingest)를 통째로 죽이지 않게 한다.
+    (memlab.llm.degrade로 이관 예정 — 검증 리뷰 A22. 아래 temp 0 폭주
+    실측 경위는 이관 시 공용판 docstring으로 옮길 것.)
 
     근거 실측 (conv-26 발화 32, 2026-07-12): resolution 프롬프트가 temp 0
     폭주 생성에 빠지면 재시도 5회가 전부 같은 반복으로 타임아웃, 대화
